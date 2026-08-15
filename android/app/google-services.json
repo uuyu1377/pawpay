@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "873539268433",
+    "project_id": "pet-accounting",
+    "storage_bucket": "pet-accounting.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:873539268433:android:9573229fd90b1764cded70",
+        "android_client_info": {
+          "package_name": "com.example.user_interface"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "873539268433-mkvh5s37bqsupq2b11vs026hi0hovpeb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.example.user_interface",
+            "certificate_hash": "1d4a0d82d92a3e75f91f608417b6d34c9aec6ee6"
+          }
+        },
+        {
+          "client_id": "873539268433-5mui352qlrd542cidk5i6jf7a3s8crcc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_3ts_kuoy-k7NTYBZi0PKxKA_ve-BrlU"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "873539268433-5mui352qlrd542cidk5i6jf7a3s8crcc.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "873539268433-n82dv4bb2sqf7ebp3rvk3o5gr91s8hko.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.userInterface"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
