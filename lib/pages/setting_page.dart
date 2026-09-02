@@ -16,6 +16,7 @@ import '../services/database_helper.dart'; // ★★★ 新增這行 ★★★
 import '../services/currency_service.dart';
 import '../services/notification_service.dart'; // ★ 合併自朋友版：旅遊/每日提醒通知服務
 import '../services/category_budget_service.dart';
+import '../services/category_budget_suggestion_service.dart';
 import '../models/transaction_model.dart';
 import 'settings_category_manage_page.dart';
 import 'settings_faq_page.dart';
@@ -728,6 +729,22 @@ class _SettingPageState extends State<SettingPage> {
         ),
     };
 
+    // 非同步預載建議金額，底部表單彈出前完成，不阻塞 UI
+    Map<String, BudgetSuggestion> suggestions = {};
+    try {
+      debugPrint('[BudgetSuggestion] 開始呼叫 getAllTransactions...');
+      final txs = await DatabaseHelper.instance.getAllTransactions();
+      debugPrint('[BudgetSuggestion] 取得交易筆數：${txs.length}');
+      suggestions = CategoryBudgetSuggestionService.suggestAll(categories, txs);
+      debugPrint('[BudgetSuggestion] suggestAll 完成，共 ${suggestions.length} 個分類');
+      suggestions.forEach((k, v) =>
+          debugPrint('[BudgetSuggestion]   $k => ${v.amount.round()} (hasHistory=${v.hasHistory})'));
+    } catch (e, st) {
+      debugPrint('[BudgetSuggestion] ❌ 計算失敗，exception: $e');
+      debugPrint('[BudgetSuggestion] stack: $st');
+    }
+
+    if (!mounted) return;
     final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
@@ -766,6 +783,8 @@ class _SettingPageState extends State<SettingPage> {
                           itemBuilder: (context, index) {
                             final name = categories[index];
                             final isEnabled = enabledMap[name] ?? false;
+                            final suggestion = suggestions[name];
+                            debugPrint('[BudgetSuggestion] itemBuilder[$index] name="$name" isEnabled=$isEnabled suggestion=${suggestion == null ? "null" : "${suggestion.amount.round()}"}');
                             return Row(
                               crossAxisAlignment: CrossAxisAlignment.center,
                               children: [
@@ -780,16 +799,56 @@ class _SettingPageState extends State<SettingPage> {
                                   const SizedBox(width: 10),
                                   Expanded(
                                     flex: 4,
-                                    child: TextField(
-                                      controller: controllers[name],
-                                      keyboardType: TextInputType.number,
-                                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                                      decoration: InputDecoration(
-                                        isDense: true,
-                                        prefixText: '${CurrencyService.symbolForCode(CurrencyService.codeFromSetting(_currency))} ',
-                                        border: const OutlineInputBorder(),
-                                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                                      ),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        TextField(
+                                          controller: controllers[name],
+                                          keyboardType: TextInputType.number,
+                                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                          decoration: InputDecoration(
+                                            isDense: true,
+                                            prefixText: '${CurrencyService.symbolForCode(CurrencyService.codeFromSetting(_currency))} ',
+                                            border: const OutlineInputBorder(),
+                                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                          ),
+                                        ),
+                                        if (suggestion != null) ...[
+                                          const SizedBox(height: 4),
+                                          Row(
+                                            children: [
+                                              Flexible(
+                                                child: Text(
+                                                  suggestion.hasHistory
+                                                      ? '建議金額：NT\$${_money(suggestion.amount.round())}（依過去3-6月平均）'
+                                                      : '預設建議：NT\$${_money(suggestion.amount.round())}',
+                                                  style: const TextStyle(
+                                                    fontSize: 10.5,
+                                                    color: Colors.grey,
+                                                  ),
+                                                ),
+                                              ),
+                                              const SizedBox(width: 4),
+                                              GestureDetector(
+                                                onTap: () {
+                                                  controllers[name]!.text =
+                                                      suggestion.amount.round().toString();
+                                                },
+                                                child: const Text(
+                                                  '套用',
+                                                  style: TextStyle(
+                                                    fontSize: 10.5,
+                                                    color: Color(0xFF0EA5E9),
+                                                    decoration: TextDecoration.underline,
+                                                    decorationColor: Color(0xFF0EA5E9),
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ],
+                                      ],
                                     ),
                                   ),
                                 ],
