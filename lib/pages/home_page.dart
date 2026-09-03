@@ -9,6 +9,7 @@ import 'package:user_interface/services/database_helper.dart';
 import 'package:user_interface/services/currency_service.dart';
 import 'package:user_interface/services/category_budget_service.dart';
 import 'package:user_interface/widgets/city_expense_carousel.dart';
+import 'package:user_interface/widgets/iso_city_view.dart';
 
 // 引入語音頁面
 import 'package:user_interface/pages/voice_page.dart';
@@ -660,7 +661,9 @@ class HomePageState extends State<HomePage> {
             .toList()
           ..sort((a, b) => b.amount.compareTo(a.amount));
 
-        return CityExpenseCarousel(expensesFuture: Future.value(expenses));
+        // 舊版（正面視角的大樓輪播）：留著方便隨時切回來
+        // return CityExpenseCarousel(expensesFuture: Future.value(expenses));
+        return IsoCityView(expenses: expenses);
       },
     );
   }

@@ -79,6 +79,7 @@ flutter:
     - assets/sounds/
     - assets/animations/
     - assets/images/
+    - assets/iso/
 
 dependency_overrides:
   record_linux: ^1.3.0
