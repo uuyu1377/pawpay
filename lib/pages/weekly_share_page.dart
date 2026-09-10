@@ -15,6 +15,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:user_interface/config/backend_config.dart';
 import 'package:user_interface/models/transaction_model.dart';
+import 'package:user_interface/services/game_api_service.dart';
+import 'package:user_interface/services/category_budget_service.dart'; // ★ 任務2：類別預算（算「守住幾項」用）
 
 enum ShareCardTemplate {
   cutePink,
@@ -54,12 +56,23 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
 
   String _currentPet = 'dog';
   String _nickname = '使用者';
+  Map<String, double> _categoryBudgets = {}; // ★ 任務2：類別預算（月底小結算守住幾項）
 
   @override
   void initState() {
     super.initState();
+    _recordReportView();
     _loadUserPetInfo();
+    _loadCategoryBudgets(); // ★ 任務2：載入類別預算給月底小結用
     _loadAiSummary();
+  }
+
+  Future<void> _recordReportView() async {
+    try {
+      await GameApiService.instance.recordReportView();
+    } catch (e) {
+      debugPrint('報表任務進度同步失敗：$e');
+    }
   }
 
   Future<void> _loadUserPetInfo() async {
@@ -71,6 +84,69 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
       _currentPet = prefs.getString('current_pet_key') ?? 'dog';
       _nickname = prefs.getString('user_nickname') ?? '使用者';
     });
+  }
+
+  // ★ 任務2：載入類別預算（給「分類預算守住幾項」用；拿不到就空 Map，不顯示該行）
+  Future<void> _loadCategoryBudgets() async {
+    try {
+      final budgets = await CategoryBudgetService.loadAll();
+      if (!mounted) return;
+      setState(() => _categoryBudgets = budgets);
+    } catch (_) {
+      // 忽略，維持空 Map
+    }
+  }
+
+  // ★ 任務2：本月小結用的統計（全部用程式從交易算，不交給 AI）。monthOffset=0 本月、-1 上月。
+  double _sumMonthByType(TransactionType type, {int monthOffset = 0}) {
+    final n = DateTime.now();
+    final target = DateTime(n.year, n.month + monthOffset, 1);
+    double total = 0;
+    for (final tx in widget.transactions) {
+      if (tx.type != type) continue;
+      if (tx.date.year == target.year && tx.date.month == target.month) {
+        total += tx.amount.abs();
+      }
+    }
+    return total;
+  }
+
+  Map<String, double> _monthCategoryTotals({int monthOffset = 0}) {
+    final n = DateTime.now();
+    final target = DateTime(n.year, n.month + monthOffset, 1);
+    final Map<String, double> totals = {};
+    for (final tx in widget.transactions) {
+      if (tx.type != TransactionType.expense) continue;
+      if (tx.date.year != target.year || tx.date.month != target.month) continue;
+      final c = tx.category.trim().isEmpty ? '未分類' : tx.category.trim();
+      totals[c] = (totals[c] ?? 0) + tx.amount.abs();
+    }
+    return totals;
+  }
+
+  String _monthTopCategory() {
+    final totals = _monthCategoryTotals();
+    if (totals.isEmpty) return '無';
+    final sorted = totals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    return sorted.first.key;
+  }
+
+  // 小欄位：上面標籤、下面數字
+  Widget _buildMonthStat(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: TextStyle(fontSize: 12, color: _subTextColor(), fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: TextStyle(fontSize: 16, color: _mainTextColor(), fontWeight: FontWeight.w900),
+        ),
+      ],
+    );
   }
 
   List<WeeklyExpensePoint> _buildWeeklyExpenseData() {
@@ -236,16 +312,65 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
     return '💸';
   }
 
+  // ★★★ 當前寵物對應的 PNG 圖片 ★★★
+  static const Map<String, String> _petImageMap = {
+    'dog': 'assets/pets/dog_action.png',
+    'cat': 'assets/pets/cat_action.png',
+    'parrot': 'assets/pets/parrot_action.png',
+    'sloth': 'assets/pets/sloth_action.png',
+    'fox': 'assets/pets/fox_action.png',
+
+    'cute_dog': 'assets/pets/shiba_action.png',
+    'pomeranian': 'assets/pets/pomeranian_action.png',
+    'norm_dog': 'assets/pets/calm_dog_action.png',
+    'wagging_dog': 'assets/pets/clingy_dog_action.png',
+
+    'lovely_cat': 'assets/pets/love_cat_action.png',
+    'blue_cat': 'assets/pets/work_cat_action.png',
+    'rocket_cat': 'assets/pets/rocket_cat_action.png',
+    'loader_cat': 'assets/pets/waiting_cat_action.png',
+
+    'bear': 'assets/pets/bear_action.png',
+    'bee': 'assets/pets/bee_action.png',
+    'giraffe': 'assets/pets/giraffe_action.png',
+  };
+
+  String _petImagePath() {
+    return _petImageMap[_currentPet] ?? 'assets/pets/dog_action.png';
+  }
+
   String _petEmoji() {
     switch (_currentPet) {
       case 'cat':
-        return '😼';
+        return '🐱';
       case 'fox':
         return '🦊';
       case 'parrot':
         return '🦜';
       case 'sloth':
         return '🦥';
+      case 'cute_dog':
+        return '🐕';
+      case 'pomeranian':
+        return '🐩';
+      case 'norm_dog':
+        return '🦮';
+      case 'wagging_dog':
+        return '🐕';
+      case 'lovely_cat':
+        return '😻';
+      case 'blue_cat':
+        return '😼';
+      case 'rocket_cat':
+        return '😸';
+      case 'loader_cat':
+        return '🐈';
+      case 'bear':
+        return '🐻';
+      case 'bee':
+        return '🐝';
+      case 'giraffe':
+        return '🦒';
       case 'dog':
       default:
         return '🐶';
@@ -262,6 +387,28 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
         return '鸚鵡播報員';
       case 'sloth':
         return '樹懶小助理';
+      case 'cute_dog':
+        return '柴柴衝衝員';
+      case 'pomeranian':
+        return '博美公主';
+      case 'norm_dog':
+        return '佛系狗顧問';
+      case 'wagging_dog':
+        return '黏人狗應援員';
+      case 'lovely_cat':
+        return '愛心貓陪伴員';
+      case 'blue_cat':
+        return '工作貓分析員';
+      case 'rocket_cat':
+        return '火箭貓夢想家';
+      case 'loader_cat':
+        return '等待貓觀察員';
+      case 'bear':
+        return '熊熊點心員';
+      case 'bee':
+        return '蜜蜂整理員';
+      case 'giraffe':
+        return '長頸鹿遠見顧問';
       case 'dog':
       default:
         return '狗狗記帳員';
@@ -599,6 +746,24 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
     final topCategoryAmount = _getTopCategoryAmount();
     final topThreeCategories = _getTopThreeCategories();
 
+    // ★ 任務2：本月理財小結數字（全部程式算）
+    final double monthIncome = _sumMonthByType(TransactionType.income);
+    final double monthExpense = _sumMonthByType(TransactionType.expense);
+    final double lastMonthExpense = _sumMonthByType(TransactionType.expense, monthOffset: -1);
+    final double monthSaved = monthIncome - monthExpense;
+    final String monthTopCat = _monthTopCategory();
+    final Map<String, double> monthCatTotals = _monthCategoryTotals();
+    final int budgetCount = _categoryBudgets.length;
+    int budgetKept = 0;
+    _categoryBudgets.forEach((cat, limit) {
+      final s = monthCatTotals[cat] ?? 0;
+      if (s <= limit) budgetKept++;
+    });
+    final double vsLast = monthExpense - lastMonthExpense;
+    final String vsLastText = vsLast > 0
+        ? '多花 NT\$ ${NumberFormat('#,##0').format(vsLast)}'
+        : (vsLast < 0 ? '少花 NT\$ ${NumberFormat('#,##0').format(-vsLast)}' : '和上月持平');
+
     final now = DateTime.now();
     final start = now.subtract(const Duration(days: 6));
     final dateRange =
@@ -625,8 +790,8 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
     return RepaintBoundary(
       key: _shareCardKey,
       child: Container(
-        width: 370,
-        padding: const EdgeInsets.all(20),
+        width: 330,
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: _cardBackgroundColor(),
           borderRadius: BorderRadius.circular(32),
@@ -680,8 +845,9 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
                   Row(
                     children: [
                       Container(
-                        width: 58,
-                        height: 58,
+                        width: 46,
+                        height: 46,
+                        padding: const EdgeInsets.all(2),
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(
@@ -691,9 +857,15 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
                           ),
                           shape: BoxShape.circle,
                         ),
-                        child: Text(
-                          _petEmoji(),
-                          style: const TextStyle(fontSize: 30),
+                        child: Image.asset(
+                          _petImagePath(),
+                          fit: BoxFit.contain,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Text(
+                              _petEmoji(),
+                              style: const TextStyle(fontSize: 24),
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -704,7 +876,7 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
                             Text(
                               '$_nickname 的錢包週記',
                               style: TextStyle(
-                                fontSize: 22,
+                                fontSize: 19,
                                 fontWeight: FontWeight.w900,
                                 color: _mainTextColor(),
                               ),
@@ -798,7 +970,7 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
                   const SizedBox(height: 14),
 
                   SizedBox(
-                    height: 200,
+                    height: 170,
                     child: LineChart(
                       LineChartData(
                         minY: 0,
@@ -961,8 +1133,8 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
                       return Container(
                         margin: const EdgeInsets.only(bottom: 9),
                         padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
+                          horizontal: 12,
+                          vertical: 10,
                         ),
                         decoration: BoxDecoration(
                           color: Colors.white.withOpacity(
@@ -1020,6 +1192,71 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
                       );
                     }),
 
+                  const SizedBox(height: 18),
+                  // ★ 任務2：本月理財小結（併進週分享圖，不另開新卡）
+                  Text(
+                    '本月理財小結',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      color: _mainTextColor(),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(
+                        _selectedTemplate == ShareCardTemplate.nightBlue
+                            ? 0.10
+                            : 0.82,
+                      ),
+                      borderRadius: BorderRadius.circular(24),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildMonthStat(
+                                '本月收入',
+                                'NT\$ ${NumberFormat('#,##0').format(monthIncome)}',
+                              ),
+                            ),
+                            Expanded(
+                              child: _buildMonthStat(
+                                '本月支出',
+                                'NT\$ ${NumberFormat('#,##0').format(monthExpense)}',
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildMonthStat(
+                                monthSaved >= 0 ? '本月存下' : '本月透支',
+                                'NT\$ ${NumberFormat('#,##0').format(monthSaved.abs())}',
+                              ),
+                            ),
+                            Expanded(
+                              child: _buildMonthStat('最會花', monthTopCat),
+                            ),
+                          ],
+                        ),
+                        if (budgetCount > 0) ...[
+                          const SizedBox(height: 12),
+                          _buildMonthStat('分類預算守住', '$budgetKept / $budgetCount 項'),
+                        ],
+                        const SizedBox(height: 12),
+                        _buildMonthStat('比上月', vsLastText),
+                      ],
+                    ),
+                  ),
+
                   const SizedBox(height: 14),
 
                   Container(
@@ -1036,11 +1273,23 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
                     child: Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          _petEmoji(),
-                          style: const TextStyle(fontSize: 25),
+                        SizedBox(
+                          width: 38,
+                          height: 38,
+                          child: Image.asset(
+                            _petImagePath(),
+                            fit: BoxFit.contain,
+                            errorBuilder: (context, error, stackTrace) {
+                              return Center(
+                                child: Text(
+                                  _petEmoji(),
+                                  style: const TextStyle(fontSize: 22),
+                                ),
+                              );
+                            },
+                          ),
                         ),
-                        const SizedBox(width: 10),
+                        const SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             _isAiLoading ? '正在幫你生成可愛小結論...' : summaryText,
