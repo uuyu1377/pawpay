@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:lottie/lottie.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // ★★★ 新增：引入本地儲存庫 ★★★
 
 import 'gacha_page.dart';
 import 'playground_page.dart';
 import 'package:user_interface/services/game_api_service.dart';
+import 'package:user_interface/services/current_pet_manager.dart';
 
 class PetPage extends StatefulWidget {
   const PetPage({super.key});
@@ -13,11 +13,20 @@ class PetPage extends StatefulWidget {
   State<PetPage> createState() => _PetPageState();
 }
 
-class _PetPageState extends State<PetPage> {
+class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
   int _petTokens = 0;
   bool _isLoading = true;
   final PageController _pageController = PageController(viewportFraction: 0.78);
   int _currentPage = 0;
+  late AnimationController _floatController;
+  late Animation<double> _floatAnimation;
+  String? _feedingPetKey;
+
+  // 所有寵物卡片統一使用相同背景
+  static const List<Color> _sharedPetBackground = [
+    Color(0xFFFFF7F2),
+    Color(0xFFFFEFE8),
+  ];
 
   // All pet types
   static const List<Map<String, dynamic>> _allPetTypes = [
@@ -26,7 +35,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'dog',
       'name': '狗狗',
       'emoji': '🐶',
-      'animation': 'assets/animations/Dog.json',
+      'idleImage': 'assets/pets/dog_action.png',
+      'feedAnimation': 'assets/pets/dog_eating.webp',
       'bgGradient': [Color(0xFFFFF8E1), Color(0xFFFFECB3)],
       'ringColor': Color(0xFFFFB300),
       'tagColor': Color(0xFFFF8F00),
@@ -35,7 +45,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'cat',
       'name': '貓咪',
       'emoji': '🐱',
-      'animation': 'assets/animations/Cat.json',
+      'idleImage': 'assets/pets/cat_action.png',
+      'feedAnimation': 'assets/pets/cat_eating.webp',
       'bgGradient': [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
       'ringColor': Color(0xFF42A5F5),
       'tagColor': Color(0xFF1E88E5),
@@ -44,7 +55,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'parrot',
       'name': '鸚鵡',
       'emoji': '🦜',
-      'animation': 'assets/animations/Parrot.json',
+      'idleImage': 'assets/pets/parrot_action.png',
+      'feedAnimation': 'assets/pets/parrot_eating.webp',
       'bgGradient': [Color(0xFFF3E5F5), Color(0xFFE1BEE7)],
       'ringColor': Color(0xFFAB47BC),
       'tagColor': Color(0xFF8E24AA),
@@ -53,7 +65,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'sloth',
       'name': '樹懶',
       'emoji': '🦥',
-      'animation': 'assets/animations/Sloth.json',
+      'idleImage': 'assets/pets/sloth_action.png',
+      'feedAnimation': 'assets/pets/sloth_eating.webp',
       'bgGradient': [Color(0xFFEFEBE9), Color(0xFFD7CCC8)],
       'ringColor': Color(0xFF8D6E63),
       'tagColor': Color(0xFF6D4C41),
@@ -62,7 +75,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'fox',
       'name': '狐狸',
       'emoji': '🦊',
-      'animation': 'assets/animations/Fox.json',
+      'idleImage': 'assets/pets/fox_action.png',
+      'feedAnimation': 'assets/pets/fox_eating.webp',
       'bgGradient': [Color(0xFFFBE9E7), Color(0xFFFFCCBC)],
       'ringColor': Color(0xFFFF5722),
       'tagColor': Color(0xFFE64A19),
@@ -70,9 +84,10 @@ class _PetPageState extends State<PetPage> {
     // ── 新增：狗狗變體 ──────────────────────────────────────────────────────
     {
       'key': 'cute_dog',
-      'name': '柴柴',
+      'name': '柴犬',
       'emoji': '🐕',
-      'animation': 'assets/animations/Cute Doggy.json',
+      'idleImage': 'assets/pets/shiba_action.png',
+      'feedAnimation': 'assets/pets/shiba_eating.webp',
       'bgGradient': [Color(0xFFFFF3E0), Color(0xFFFFE0B2)],
       'ringColor': Color(0xFFFF8A65),
       'tagColor': Color(0xFFE64A19),
@@ -81,7 +96,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'pomeranian',
       'name': '博美犬',
       'emoji': '🐩',
-      'animation': 'assets/animations/Pomeranian Dog.json',
+      'idleImage': 'assets/pets/pomeranian_action.png',
+      'feedAnimation': 'assets/pets/pomeranian_eating.webp',
       'bgGradient': [Color(0xFFFCE4EC), Color(0xFFF8BBD9)],
       'ringColor': Color(0xFFEC407A),
       'tagColor': Color(0xFFC2185B),
@@ -90,7 +106,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'norm_dog',
       'name': '諾姆犬',
       'emoji': '🦮', // ★ 修改：原本是骨頭 🦴
-      'animation': 'assets/animations/Norm The Dog.json',
+      'idleImage': 'assets/pets/calm_dog_action.png',
+      'feedAnimation': 'assets/pets/calm_dog_eating.webp',
       'bgGradient': [Color(0xFFE8F5E9), Color(0xFFC8E6C9)],
       'ringColor': Color(0xFF66BB6A),
       'tagColor': Color(0xFF388E3C),
@@ -99,7 +116,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'wagging_dog',
       'name': '甩尾狗',
       'emoji': '🐕', // ★ 修改：原本是腳印 🐾
-      'animation': 'assets/animations/Wagging Dog.json',
+      'idleImage': 'assets/pets/clingy_dog_action.png',
+      'feedAnimation': 'assets/pets/clingy_dog_eating.webp',
       'bgGradient': [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
       'ringColor': Color(0xFF29B6F6),
       'tagColor': Color(0xFF0288D1),
@@ -109,7 +127,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'lovely_cat',
       'name': '愛心貓',
       'emoji': '😻', // ★ 修改：原本是愛心 💕
-      'animation': 'assets/animations/Lovely cats.json',
+      'idleImage': 'assets/pets/love_cat_action.png',
+      'feedAnimation': 'assets/pets/love_cat_eating.webp',
       'bgGradient': [Color(0xFFFCE4EC), Color(0xFFF48FB1)],
       'ringColor': Color(0xFFE91E63),
       'tagColor': Color(0xFF880E4F),
@@ -118,7 +137,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'blue_cat',
       'name': '工作貓',
       'emoji': '😼',
-      'animation': 'assets/animations/Blue Working Cat.json',
+      'idleImage': 'assets/pets/work_cat_action.png',
+      'feedAnimation': 'assets/pets/work_cat_eating.webp',
       'bgGradient': [Color(0xFFE8EAF6), Color(0xFFC5CAE9)],
       'ringColor': Color(0xFF5C6BC0),
       'tagColor': Color(0xFF283593),
@@ -127,7 +147,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'rocket_cat',
       'name': '火箭貓',
       'emoji': '😸', // ★ 修改：原本是火箭 🚀
-      'animation': 'assets/animations/Cat in a rocket.json',
+      'idleImage': 'assets/pets/rocket_cat_action.png',
+      'feedAnimation': 'assets/pets/rocket_cat_eating.webp',
       'bgGradient': [Color(0xFFE0F2F1), Color(0xFFB2DFDB)],
       'ringColor': Color(0xFF26A69A),
       'tagColor': Color(0xFF00695C),
@@ -136,7 +157,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'loader_cat',
       'name': '等待貓',
       'emoji': '🐈', // ★ 修改：原本是沙漏 ⏳
-      'animation': 'assets/animations/Loader cat.json',
+      'idleImage': 'assets/pets/waiting_cat_action.png',
+      'feedAnimation': 'assets/pets/waiting_cat_eating.webp',
       'bgGradient': [Color(0xFFF3E5F5), Color(0xFFCE93D8)],
       'ringColor': Color(0xFFBA68C8),
       'tagColor': Color(0xFF6A1B9A),
@@ -146,7 +168,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'bear',
       'name': '熊熊',
       'emoji': '🐻',
-      'animation': 'assets/animations/Bear Like.json',
+      'idleImage': 'assets/pets/bear_action.png',
+      'feedAnimation': 'assets/pets/bear_eating.webp',
       'bgGradient': [Color(0xFFEFEBE9), Color(0xFFBCAAA4)],
       'ringColor': Color(0xFF8D6E63),
       'tagColor': Color(0xFF4E342E),
@@ -155,7 +178,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'bee',
       'name': '蜜蜂',
       'emoji': '🐝',
-      'animation': 'assets/animations/Loading Flying Beee.json',
+      'idleImage': 'assets/pets/bee_action.png',
+      'feedAnimation': 'assets/pets/bee_eating.webp',
       'bgGradient': [Color(0xFFFFFDE7), Color(0xFFFFF9C4)],
       'ringColor': Color(0xFFFFD600),
       'tagColor': Color(0xFFF9A825),
@@ -164,7 +188,8 @@ class _PetPageState extends State<PetPage> {
       'key': 'giraffe',
       'name': '長頸鹿',
       'emoji': '🦒',
-      'animation': 'assets/animations/Petite girafe.json',
+      'idleImage': 'assets/pets/giraffe_action.png',
+      'feedAnimation': 'assets/pets/giraffe_eating.webp',
       'bgGradient': [Color(0xFFFFF8E1), Color(0xFFFFECB3)],
       'ringColor': Color(0xFFFFCA28),
       'tagColor': Color(0xFFFF8F00),
@@ -186,6 +211,24 @@ class _PetPageState extends State<PetPage> {
   @override
   void initState() {
     super.initState();
+
+    _floatController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1800),
+    );
+
+    _floatAnimation = Tween<double>(
+      begin: -7,
+      end: 7,
+    ).animate(
+      CurvedAnimation(
+        parent: _floatController,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _floatController.repeat(reverse: true);
+
     _loadPets();
   }
 
@@ -195,7 +238,13 @@ class _PetPageState extends State<PetPage> {
       final api = GameApiService.instance;
       // ★ 合併自朋友版：改讀獎勵錢包的「寵物代幣」，不再用大富翁 money。
       final wallet = await api.fetchRewardWallet();
-      final pets = await api.fetchPets();
+      List<Map<String, dynamic>> pets = const [];
+      try {
+        pets = await api.fetchPets();
+      } catch (_) {
+        // 8000 API 未啟動時，仍可顯示由 5000 API 自選券解鎖的寵物。
+      }
+      final choiceState = await api.fetchPetChoiceState();
       if (!mounted) return;
 
       final unlockedMap = <String, Map<String, dynamic>>{};
@@ -205,7 +254,22 @@ class _PetPageState extends State<PetPage> {
           'id': int.tryParse(pet['id']?.toString() ?? '') ?? 0,
           'name': (pet['name'] ?? pet['species_name'] ?? '寵物').toString(),
           'satiety': (_toDouble(pet['satiety'], fallback: 0.45).clamp(0.0, 1.0) as num).toDouble(),
+          'from_choice_ticket': false,
         };
+      }
+      final choicePets = choiceState['pets'];
+      if (choicePets is List) {
+        for (final raw in choicePets) {
+          if (raw is! Map) continue;
+          final key = raw['species_key']?.toString() ?? '';
+          if (key.isEmpty || unlockedMap.containsKey(key)) continue;
+          unlockedMap[key] = {
+            'id': int.tryParse(raw['id']?.toString() ?? '') ?? 0,
+            'name': (raw['species_name'] ?? '寵物').toString(),
+            'satiety': 0.45,
+            'from_choice_ticket': true,
+          };
+        }
       }
 
       setState(() {
@@ -239,6 +303,22 @@ class _PetPageState extends State<PetPage> {
     return double.tryParse(v?.toString() ?? '') ?? fallback;
   }
 
+  Future<void> _playFeedAnimation() async {
+    final petKey = _currentPetKey;
+
+    setState(() {
+      _feedingPetKey = petKey;
+    });
+
+    await Future.delayed(const Duration(milliseconds: 1600));
+
+    if (!mounted) return;
+
+    setState(() {
+      _feedingPetKey = null;
+    });
+  }
+
   Future<void> _feedPet(Map<String, dynamic> food) async {
     if (!_currentPetUnlocked) return;
     final price = food['price'] as int;
@@ -255,6 +335,21 @@ class _PetPageState extends State<PetPage> {
         amount: price,
         source: 'pet_food',
       );
+      if (petData['from_choice_ticket'] == true) {
+        final rawGain = food['isMystery'] == true
+            ? 0.18
+            : (food['gain'] as num).toDouble();
+        if (!mounted) return;
+        setState(() {
+          _petTokens = int.tryParse(spendResult?['pet_tokens']?.toString() ?? '') ?? (_petTokens - price);
+          petData['satiety'] =
+              ((_toDouble(petData['satiety'], fallback: 0.45) + rawGain).clamp(0.0, 1.0) as num)
+                  .toDouble();
+        });
+        _showMsg('餵食成功！（寵物代幣 -$price）');
+        await _playFeedAnimation();
+        return;
+      }
       // 原本 8000 的寵物 API 只負責飽食度；price=0 避免再扣一次 money。
       final result = await GameApiService.instance.feedPet(
         petId: petData['id'] as int,
@@ -271,6 +366,7 @@ class _PetPageState extends State<PetPage> {
                 .toDouble();
       });
       _showMsg('${result['message'] ?? '餵食成功！'}（寵物代幣 -$price）');
+      await _playFeedAnimation();
     } catch (e) {
       // ★ 合併自朋友版：若代幣已扣、但寵物 API 後續失敗，就補回代幣，避免玩家白白損失。
       if (spendResult != null) {
@@ -305,6 +401,7 @@ class _PetPageState extends State<PetPage> {
 
   @override
   void dispose() {
+    _floatController.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -515,20 +612,20 @@ class _PetPageState extends State<PetPage> {
   Widget _buildPetCard(Map<String, dynamic> petType, bool isCenter) {
     final key = petType['key'] as String;
     final isUnlocked = _unlockedPets.containsKey(key);
-    final gradientColors = petType['bgGradient'] as List<dynamic>;
     final ringColor = petType['ringColor'] as Color;
-    final animPath = petType['animation'] as String;
+    final idleImage = petType['idleImage'] as String;
+    final feedAnimation = petType['feedAnimation'] as String;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Container(
         decoration: BoxDecoration(
           gradient: isUnlocked
-              ? LinearGradient(
-            colors: [gradientColors[0] as Color, gradientColors[1] as Color],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          )
+              ? const LinearGradient(
+                  colors: _sharedPetBackground,
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                )
               : LinearGradient(colors: [Colors.grey[100]!, Colors.grey[200]!]),
           borderRadius: BorderRadius.circular(32),
           border: isCenter
@@ -544,21 +641,80 @@ class _PetPageState extends State<PetPage> {
         ),
         child: Stack(
           children: [
-            // Lottie animation or grayscale preview
+            // Idle pet image with gentle floating
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 16, 12, 60),
-              child: isUnlocked
-                  ? Lottie.asset(animPath, fit: BoxFit.contain, animate: true)
-                  : ColorFiltered(
-                colorFilter: const ColorFilter.matrix([
-                  0.2126, 0.7152, 0.0722, 0, 0,
-                  0.2126, 0.7152, 0.0722, 0, 0,
-                  0.2126, 0.7152, 0.0722, 0, 0,
-                  0,      0,      0,      0.45, 0,
-                ]),
-                child: Lottie.asset(animPath, fit: BoxFit.contain, animate: false),
+              child: Center(
+                child: AnimatedBuilder(
+                  animation: _floatAnimation,
+                  builder: (context, child) {
+                    return Transform.translate(
+                      offset: Offset(
+                        0,
+                        isCenter && _feedingPetKey != key
+                            ? _floatAnimation.value
+                            : 0,
+                      ),
+                      child: child,
+                    );
+                  },
+                  child: isUnlocked
+                      ? Opacity(
+                          opacity: _feedingPetKey == key ? 0.0 : 1.0,
+                          child: Image.asset(
+                            idleImage,
+                            width: 230,
+                            height: 230,
+                            fit: BoxFit.contain,
+                          ),
+                        )
+                      : ColorFiltered(
+                          colorFilter: const ColorFilter.matrix([
+                            0.2126, 0.7152, 0.0722, 0, 0,
+                            0.2126, 0.7152, 0.0722, 0, 0,
+                            0.2126, 0.7152, 0.0722, 0, 0,
+                            0,      0,      0,      0.45, 0,
+                          ]),
+                          child: Image.asset(
+                            idleImage,
+                            width: 230,
+                            height: 230,
+                            fit: BoxFit.contain,
+                          ),
+                        ),
+                ),
               ),
             ),
+
+            // Feeding GIF overlay
+            if (isUnlocked && _feedingPetKey == key)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: Center(
+                    child: TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0.78, end: 1.08),
+                      duration: const Duration(milliseconds: 350),
+                      curve: Curves.easeOutBack,
+                      builder: (context, scale, child) {
+                        return Transform.translate(
+                          offset: const Offset(0, -18),
+                          child: Transform.scale(
+                            scale: scale,
+                            child: child,
+                          ),
+                        );
+                      },
+                      child: Image.asset(
+                        feedAnimation,
+                        width: 260,
+                        height: 260,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: false,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
 
             // Lock overlay
             if (!isUnlocked)
@@ -632,7 +788,7 @@ class _PetPageState extends State<PetPage> {
                         final petData = _unlockedPets[key]!;
                         SelectedPet.set(
                           name: petData['name'] as String,
-                          animationPath: petType['animation'] as String,
+                          animationPath: petType['idleImage'] as String,
                           emoji: petType['emoji'] as String,
                           color: petType['ringColor'] as Color,
                         );
@@ -646,7 +802,7 @@ class _PetPageState extends State<PetPage> {
                           MaterialPageRoute(
                             builder: (_) => PlaygroundPage(
                               petName: petData['name'] as String,
-                              petAnimationPath: petType['animation'] as String,
+                              petAnimationPath: petType['idleImage'] as String,
                               petEmoji: petType['emoji'] as String,
                               petColor: petType['ringColor'] as Color,
                               initialMapTheme: SelectedPet.lastMapTheme ?? MapTheme.taiwan,

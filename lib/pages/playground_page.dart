@@ -855,14 +855,19 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                 ),
                 // 寵物動畫本體
                 SizedBox(
-                  width: size,
-                  height: size,
-                  child: Lottie.asset(
-                    p.animationPath!,
-                    fit: BoxFit.contain,
-                    animate: true,
-                    repeat: true,
-                  ),
+                width: size,
+                height: size,
+                child: isUser
+                ? Image.asset(
+                p.animationPath!,
+                fit: BoxFit.contain,
+                )
+                    : Lottie.asset(
+                p.animationPath!,
+                fit: BoxFit.contain,
+                animate: true,
+                repeat: true,
+                ),
                 ),
               ],
             )
@@ -929,9 +934,26 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                             shape: BoxShape.circle,
                             color: p.color.withOpacity(isActive ? 1.0 : 0.45),
                           ),
-                          child: p.animationPath != null
-                              ? Center(child: Text(p.emoji ?? '🐾', style: const TextStyle(fontSize: 16)))
-                              : Icon(p.icon, size: 13, color: Colors.white),
+                      child: p.id == 0 && p.animationPath != null
+                          ? Padding(
+                        padding: const EdgeInsets.all(3),
+                        child: Image.asset(
+                          p.animationPath!,
+                          fit: BoxFit.contain,
+                        ),
+                      )
+                          : p.animationPath != null
+                          ? Center(
+                        child: Text(
+                          p.emoji ?? '🐾',
+                          style: const TextStyle(fontSize: 16),
+                        ),
+                      )
+                          : Icon(
+                        p.icon,
+                        size: 13,
+                        color: Colors.white,
+                      ),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -1051,13 +1073,16 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                       border: Border.all(color: _players[0].color, width: 2),
                       boxShadow: [BoxShadow(color: _players[0].color.withOpacity(0.3), blurRadius: 8)],
                     ),
-                    child: Center(
-                      child: Text(
-                        _players[0].emoji ?? SelectedPet.emoji ?? '🐾',
-                        style: const TextStyle(fontSize: 26),
+                    child: Padding(
+                      padding: const EdgeInsets.all(2),
+                      child: Image.asset(
+                        _players[0].animationPath ??
+                            SelectedPet.animationPath ??
+                            'assets/pets/dog_action.png',
+                        fit: BoxFit.contain,
                       ),
                     ),
-                  ),
+                    ),
                 ),
               ],
             ),
