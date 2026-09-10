@@ -49,11 +49,12 @@ class HomePageState extends State<HomePage> {
   String? _aiComment;
   bool _showAiComment = false;
   Timer? _timer;
+  String _currentPetKey = 'dog';
+
+  late Future<List<Map<String, dynamic>>> _quickExpenseFuture;
 
   // ★★★ 新增：當前「上戰場」寵物的 emoji，會跟著 current_pet_key 改變 ★★★
-  // 預設 🐶 是為了對應「蛋階段（尚未選寵物）」時後端預設用狗狗語氣講話，讓臉跟語氣一致
-  String _currentPetEmoji = '🐶';
-
+  // 預設 🐶 是為了對應「蛋階段（尚未選寵物）」時後端預設用狗狗語氣講話，讓臉跟語氣相同
   // ★★★ 來自合併：動態分類相關變數 ★★★
   late Future<List<Map<String, dynamic>>> _quickExpenseFuture;
 
@@ -88,39 +89,43 @@ class HomePageState extends State<HomePage> {
   }
 
   // ★★★ 新增：寵物 key -> emoji 對照表 (與 pet_page 的 _allPetTypes 完全一致，16 隻) ★★★
-  static const Map<String, String> _petEmojiMap = {
-    'dog': '🐶',
-    'cat': '🐱',
-    'parrot': '🦜',
-    'sloth': '🦥',
-    'fox': '🦊',
-    'cute_dog': '🐕',
-    'pomeranian': '🐩',
-    // ★★★ 修改：改成貓狗 emoji（原本是骨頭/腳印/愛心/火箭/沙漏等非動物圖示）★★★
-    'norm_dog': '🦮',
-    'wagging_dog': '🐕',
-    'lovely_cat': '😻',
-    'blue_cat': '😼',
-    'rocket_cat': '😸',
-    'loader_cat': '🐈',
-    'bear': '🐻',
-    'bee': '🐝',
-    'giraffe': '🦒',
-  };
+  static const Map<String, String> _petImageMap = {
+    'dog': 'assets/pets/dog.png',
+    'cat': 'assets/pets/cat.png',
+    'parrot': 'assets/pets/parrot.png',
+    'sloth': 'assets/pets/sloth.png',
+    'fox': 'assets/pets/fox.png',
 
+    'cute_dog': 'assets/pets/shiba.png',
+    'pomeranian': 'assets/pets/pomeranian.png',
+    'norm_dog': 'assets/pets/calm_dog.png',
+    'wagging_dog': 'assets/pets/clingy_dog.png',
+
+    'lovely_cat': 'assets/pets/love_cat.png',
+    'blue_cat': 'assets/pets/work_cat.png',
+    'rocket_cat': 'assets/pets/rocket_cat.png',
+    'loader_cat': 'assets/pets/waiting_cat.png',
+
+    'bear': 'assets/pets/bear.png',
+    'bee': 'assets/pets/bee.png',
+    'giraffe': 'assets/pets/giraffe.png',
+  };
   // ★★★ 新增：從 SharedPreferences 讀取當前上場寵物，換成對應 emoji ★★★
   // 查不到 (蛋階段 / 尚未選寵物) 就用預設狗狗 emoji，與後端預設語氣一致
-  Future<void> _loadCurrentPetEmoji() async {
+  Future<void> _loadCurrentPetImage() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final petKey = prefs.getString('current_pet_key') ?? 'dog';
-      final emoji = _petEmojiMap[petKey] ?? '🐶';
+
+      final petKey =
+          prefs.getString('current_pet_key') ?? 'dog';
+
       if (!mounted) return;
+
       setState(() {
-        _currentPetEmoji = emoji;
+        _currentPetKey = petKey;
       });
     } catch (_) {
-      // 讀取失敗就沿用目前的 emoji，不做任何事
+      // 讀取失敗時維持預設 dog
     }
   }
 
@@ -137,7 +142,7 @@ class HomePageState extends State<HomePage> {
     // HomePage 被 IndexedStack 保留在記憶體裡不會重新 initState，
     // 設定頁存檔類別預算時靠這個監聽器即時重讀，不用等交易筆數變動才更新。
     CategoryBudgetService.revision.addListener(_loadCategoryBudgets);
-    _loadCurrentPetEmoji(); // ★★★ 一開 App 先讀當前上場寵物的 emoji ★★★
+    _loadCurrentPetImage(); // ★★★ 一開 App 先讀當前上場寵物的 emoji ★★★
 
     // ★★★ 畫面建立完成後，再檢查是否要跳出本週分享圖提醒
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -280,7 +285,7 @@ class HomePageState extends State<HomePage> {
 
   // 給外部呼叫的方法，用來觸發 AI 短評動畫 (保留你的邏輯)
   void triggerAiComment(String comment) {
-    _loadCurrentPetEmoji(); // ★★★ 新增：跳短評前先重讀，確保臉是「當前上場寵物」(中途換寵物也會即時更新) ★★★
+    _loadCurrentPetImage(); // ★★★ 新增：跳短評前先重讀，確保臉是「當前上場寵物」(中途換寵物也會即時更新) ★★★
     setState(() {
       _aiComment = comment;
       _showAiComment = true;
@@ -509,8 +514,19 @@ class HomePageState extends State<HomePage> {
                 },
                 backgroundColor: _showAiComment ? const Color(0xFFFFF59D) : Colors.blueAccent,
                 child: _showAiComment
-                    ? Text(_currentPetEmoji, style: const TextStyle(fontSize: 32)) // ★★★ 修改：改成當前上場寵物的 emoji (原本寫死 🦜) ★★★
-                    : const Icon(Icons.search, color: Colors.white),
+                    ? Center(
+                  child: Image.asset(
+                    _petImageMap[_currentPetKey] ??
+                        'assets/pets/dog.png',
+                    width: 35,
+                    height: 35,
+                    fit: BoxFit.contain,
+                  ),
+                )
+                    : const Icon(
+                  Icons.search,
+                  color: Colors.white,
+                ),
               ),
             ],
           ),
