@@ -270,8 +270,17 @@ class HomePageState extends State<HomePage> {
   }
 
   // ★★★ 來自合併：讀取資料庫分類
-  Future<List<Map<String, dynamic>>> _loadQuickExpense() {
-    return DatabaseHelper.instance.getQuickCategories(type: 'expense');
+  Future<List<Map<String, dynamic>>> _loadQuickExpense() async {
+    print("🏠 開始載入房子分類...");
+    try {
+      final result = await DatabaseHelper.instance.getQuickCategories(type: 'expense');
+      print("🏠 房子分類載入成功，共 ${result.length} 筆");
+      return result;
+    } catch (e, stack) {
+      print("🏠 房子分類載入失敗：$e");
+      print(stack);
+      rethrow;
+    }
   }
 
   Future<void> _loadCategoryBudgets() async {
