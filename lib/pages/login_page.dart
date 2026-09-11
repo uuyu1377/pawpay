@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // ★ 新增：手機號碼輸入框要用 FilteringTextInputFormatter 限制只能打數字
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // ★ 新增：用來儲存使用者 ID
 import 'dart:math'; // ★★★ 新增這行：用來產生隨機數字字串 ★★★
@@ -162,6 +163,149 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  // ★★★ 新增：目前登記在 Firebase 的測試手機號碼 + 對應驗證碼，方便自己測試時自動帶入 ★★★
+  // 上線前記得把這裡清空或移除，避免正式版也帶到測試驗證碼
+  static const Map<String, String> _devTestPhoneCodes = {
+    '+886912345678': '123456',
+  };
+
+  // ★★★ 新增：手機號碼登入 - 入口，先彈出對話框讓使用者輸入手機號碼 ★★★
+  // ★ 改成固定顯示 +886 國碼 (目前只開放台灣門號)，使用者只需要打後面的數字
+  Future<void> _handlePhoneLogin() async {
+    final phoneController = TextEditingController();
+    final phoneNumber = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('輸入手機號碼'),
+        content: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Padding(
+              padding: EdgeInsets.only(top: 14),
+              child: Text(
+                '+886',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: TextField(
+                controller: phoneController,
+                autofocus: true,
+                keyboardType: TextInputType.phone,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly], // ★ 只能打數字
+                decoration: const InputDecoration(
+                  hintText: '0912345678',
+                  helperText: '開頭的 0 可打可不打，兩種都可以', // ★ 提示文字改短，避免被框住
+                  helperMaxLines: 2,
+                  helperStyle: TextStyle(fontSize: 13),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              // ★ 不管使用者打 0912345678 還是 912345678，統一去掉開頭的 0 再接上 +886
+              var digits = phoneController.text.trim();
+              if (digits.startsWith('0')) digits = digits.substring(1);
+              Navigator.of(ctx).pop('+886$digits');
+            },
+            child: const Text('發送驗證碼'),
+          ),
+        ],
+      ),
+    );
+    if (phoneNumber == null || phoneNumber == '+886') return;
+
+    setState(() => _isLoading = true);
+    try {
+      await FirebaseAuthService.verifyPhoneNumber(
+        phoneNumber: phoneNumber,
+        onCodeSent: (verificationId) async {
+          // ★ 驗證碼送出後先關掉 loading，讓使用者可以輸入驗證碼
+          if (mounted) setState(() => _isLoading = false);
+          await _showSmsCodeDialog(verificationId, phoneNumber);
+        },
+        onFailed: (error) {
+          // ★ 新增：印出完整錯誤到 debug console，之後回報問題時可以直接複製這行訊息
+          debugPrint('❌ 手機登入失敗（發送驗證碼階段）：$error');
+          if (mounted) setState(() => _isLoading = false);
+          _showMessage('手機登入失敗：$error');
+        },
+        onAutoVerified: (idToken) async {
+          // ★ 少數 Android 手機可以自動讀簡訊，不用使用者輸入就直接完成登入
+          try {
+            await FirebaseAuthService.exchangeTokenWithBackend(idToken);
+            _goToOnboarding();
+          } catch (e) {
+            debugPrint('❌ 自動驗證後，換後端 token 失敗：$e');
+            _showMessage('登入失敗：$e');
+          } finally {
+            if (mounted) setState(() => _isLoading = false);
+          }
+        },
+      );
+    } catch (e) {
+      debugPrint('❌ 手機登入拋出例外（發送驗證碼階段）：$e');
+      if (mounted) setState(() => _isLoading = false);
+      _showMessage('手機登入失敗：$e');
+    }
+  }
+
+  // ★★★ 新增：手機號碼登入 - 第二步，彈出對話框讓使用者輸入收到的簡訊驗證碼 ★★★
+  // ★ 改成多帶一個 phoneNumber 參數，如果是自己登記的測試門號，就自動帶入測試驗證碼
+  Future<void> _showSmsCodeDialog(String verificationId, String phoneNumber) async {
+    final codeController =
+    TextEditingController(text: _devTestPhoneCodes[phoneNumber] ?? '');
+    if (!mounted) return;
+    final smsCode = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('輸入簡訊驗證碼'),
+        content: TextField(
+          controller: codeController,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly], // ★ 只能打數字
+          decoration: const InputDecoration(hintText: '123456'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('取消'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(codeController.text.trim()),
+            child: const Text('確認登入'),
+          ),
+        ],
+      ),
+    );
+    if (smsCode == null || smsCode.isEmpty) return;
+
+    setState(() => _isLoading = true);
+    try {
+      final idToken = await FirebaseAuthService.signInWithSmsCode(
+        verificationId: verificationId,
+        smsCode: smsCode,
+      );
+      await FirebaseAuthService.exchangeTokenWithBackend(idToken);
+      _goToOnboarding();
+    } catch (e) {
+      // ★ 新增：印出完整錯誤到 debug console，方便抓「按確認登入沒反應」這類問題的真正原因
+      debugPrint('❌ 驗證碼登入失敗（確認登入階段）：$e');
+      _showMessage('驗證碼錯誤或登入失敗：$e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   // ... (檔案的其餘部分保持不變) ...
   @override
   Widget build(BuildContext context) {
@@ -301,7 +445,7 @@ class _LoginPageState extends State<LoginPage> {
                       icon: FontAwesomeIcons.phoneFlip,
                       color: Colors.grey[200]!,
                       textColor: Colors.black,
-                      onPressed: () => _navigateToHome(context),
+                      onPressed: _isLoading ? null : _handlePhoneLogin, // ★ 改接真正的手機驗證登入
                     ),
                     const SizedBox(height: 24),
                   ],

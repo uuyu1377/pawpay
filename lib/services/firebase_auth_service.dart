@@ -100,6 +100,64 @@ class FirebaseAuthService {
     await _auth.sendPasswordResetEmail(email: email);
   }
 
+  /// ★★★ 新增：手機號碼登入 - 第一步，發送簡訊驗證碼 ★★★
+  /// 手機驗證要分兩步：先送出驗證碼、使用者輸入後再驗證，所以用 callback 方式處理：
+  /// - onCodeSent：驗證碼已送出，把 verificationId 存起來，等使用者輸入
+  /// - onAutoVerified：極少數 Android 手機可以自動讀取簡訊，直接完成登入，不用使用者輸入
+  /// - onFailed：號碼格式錯誤、簡訊配額用完 (例如 Spark 免付費方案未開通帳單) 等等
+  /// phoneNumber 記得要帶國碼，例如台灣門號要傳 '+886912345678'
+  static Future<void> verifyPhoneNumber({
+    required String phoneNumber,
+    required void Function(String verificationId) onCodeSent,
+    required void Function(String error) onFailed,
+    required void Function(String idToken) onAutoVerified,
+  }) async {
+    await _auth.verifyPhoneNumber(
+      phoneNumber: phoneNumber,
+      verificationCompleted: (PhoneAuthCredential credential) async {
+        try {
+          await _auth.signInWithCredential(credential);
+          final idToken = await _auth.currentUser?.getIdToken();
+          if (idToken != null) {
+            onAutoVerified(idToken);
+          }
+        } catch (e) {
+          onFailed('自動驗證失敗：$e');
+        }
+      },
+      verificationFailed: (FirebaseAuthException e) {
+        // ★ 新增：把完整的錯誤代碼印出來，方便判斷是不是少了 SHA-1 指紋這類設定問題
+        // ignore: avoid_print
+        print('❌ FirebaseAuth verifyPhoneNumber 失敗：code=${e.code}, message=${e.message}');
+        onFailed(e.message ?? '手機驗證失敗 (${e.code})');
+      },
+      codeSent: (String verificationId, int? resendToken) {
+        onCodeSent(verificationId);
+      },
+      codeAutoRetrievalTimeout: (String verificationId) {
+        // 逾時沒自動抓到簡訊，維持讓使用者手動輸入驗證碼即可，這裡不用特別處理
+      },
+    );
+  }
+
+  /// ★★★ 新增：手機號碼登入 - 第二步，用使用者輸入的簡訊驗證碼完成登入 → 回傳 Firebase ID Token ★★★
+  static Future<String> signInWithSmsCode({
+    required String verificationId,
+    required String smsCode,
+  }) async {
+    final credential = PhoneAuthProvider.credential(
+      verificationId: verificationId,
+      smsCode: smsCode,
+    );
+    await _auth.signInWithCredential(credential);
+
+    final idToken = await _auth.currentUser?.getIdToken();
+    if (idToken == null) {
+      throw Exception('無法取得 Firebase ID Token (Phone)');
+    }
+    return idToken;
+  }
+
   /// 登出 (Google + Firebase 都清掉)
   static Future<void> signOut() async {
     try {
