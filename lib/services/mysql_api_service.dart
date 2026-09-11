@@ -43,6 +43,17 @@ class MysqlApiService {
     return "http://localhost:${BackendConfig.mysqlApiPort}";
   }
 
+  static String get aiBaseUrl {
+    if (kIsWeb) return "http://localhost:${BackendConfig.ocrPort}";
+    if (Platform.isAndroid) {
+      if (BackendConfig.androidEmulator) {
+        return "http://10.0.2.2:${BackendConfig.ocrPort}";
+      }
+      return BackendConfig.baseUrl;
+    }
+    return "http://localhost:${BackendConfig.ocrPort}";
+  }
+
   final Dio _dio = Dio(
     BaseOptions(
       connectTimeout: const Duration(seconds: 3),
@@ -245,6 +256,113 @@ class MysqlApiService {
     await prefs.setString('transaction_currency_overrides', jsonEncode(overrides));
   }
 
+  static const String _paymentMetadataPrefsKey = 'transaction_payment_metadata_v1';
+
+  Map<String, dynamic> _paymentMetadataFromTransaction(model.Transaction tx) => {
+        'purchase_amount': tx.originalAmount,
+        'currency': tx.currency,
+        'is_foreign_card': tx.isForeignCard,
+        'foreign_fee_rate': tx.foreignFeeRate,
+        'foreign_fee_amount_twd': tx.foreignFeeAmountTwd,
+        'exchange_rate_to_twd': tx.exchangeRateToTwd,
+        'exchange_rate_source': tx.exchangeRateSource,
+        'exchange_rate_type': tx.exchangeRateType,
+        'exchange_rate_date': tx.exchangeRateDate,
+      };
+
+  Future<Map<String, Map<String, dynamic>>> _loadLocalPaymentMetadata() async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString(_paymentMetadataPrefsKey);
+    if (raw == null || raw.isEmpty) return <String, Map<String, dynamic>>{};
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return <String, Map<String, dynamic>>{};
+      return decoded.map((key, value) => MapEntry(
+            key.toString(),
+            value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{},
+          ));
+    } catch (_) {
+      return <String, Map<String, dynamic>>{};
+    }
+  }
+
+  Future<void> _savePaymentMetadata({
+    required String transactionId,
+    required int userId,
+    required model.Transaction tx,
+  }) async {
+    if (transactionId.trim().isEmpty) return;
+    final metadata = _paymentMetadataFromTransaction(tx);
+    final prefs = await SharedPreferences.getInstance();
+    final local = await _loadLocalPaymentMetadata();
+    local[transactionId] = metadata;
+    await prefs.setString(_paymentMetadataPrefsKey, jsonEncode(local));
+
+    try {
+      final token = prefs.getString('jwt_token');
+      await _dio.put(
+        '$aiBaseUrl/api/transactions/$transactionId/payment-metadata',
+        data: {'user_id': userId, ...metadata},
+        options: Options(headers: {
+          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+        }),
+      );
+    } catch (e) {
+      debugPrint('付款資訊暫存於本機，後端同步失敗：$e');
+    }
+  }
+
+  Future<Map<String, Map<String, dynamic>>> _fetchPaymentMetadata({
+    required int userId,
+    required Iterable<String> transactionIds,
+  }) async {
+    final local = await _loadLocalPaymentMetadata();
+    final ids = transactionIds.where((id) => id.trim().isNotEmpty).toList();
+    if (ids.isEmpty) return local;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final token = prefs.getString('jwt_token');
+      final response = await _dio.get(
+        '$aiBaseUrl/api/transactions/payment-metadata',
+        queryParameters: {'user_id': userId, 'transaction_ids': ids.join(',')},
+        options: Options(headers: {
+          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+        }),
+      );
+      final body = response.data;
+      final rows = body is Map ? body['metadata'] : null;
+      if (rows is List) {
+        for (final raw in rows) {
+          if (raw is! Map) continue;
+          final row = Map<String, dynamic>.from(raw);
+          final id = row['transaction_id']?.toString() ?? '';
+          if (id.isNotEmpty) local[id] = row;
+        }
+        await prefs.setString(_paymentMetadataPrefsKey, jsonEncode(local));
+      }
+    } catch (e) {
+      debugPrint('讀取後端付款資訊失敗，使用本機備援：$e');
+    }
+    return local;
+  }
+
+  Future<void> _removePaymentMetadata(String transactionId, int userId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final local = await _loadLocalPaymentMetadata();
+    local.remove(transactionId);
+    await prefs.setString(_paymentMetadataPrefsKey, jsonEncode(local));
+    try {
+      final token = prefs.getString('jwt_token');
+      await _dio.delete(
+        '$aiBaseUrl/api/transactions/$transactionId/payment-metadata',
+        queryParameters: {'user_id': userId},
+        options: Options(headers: {
+          if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+        }),
+      );
+    } catch (_) {}
+  }
+
   // =========================
   // Transactions
   // =========================
@@ -255,6 +373,9 @@ class MysqlApiService {
     required model.Transaction tx,
   }) async {
     final direction = tx.type == model.TransactionType.income ? 'income' : 'expense';
+    final storedAmount = tx.isForeignCard
+        ? tx.originalAmount * (1 + tx.foreignFeeRate)
+        : tx.originalAmount;
     final res = await _dio.post(
       '${baseUrl}/transactions/manual',
       data: {
@@ -262,7 +383,7 @@ class MysqlApiService {
         'target': target,
         'direction': direction,
         'category': tx.category,
-        'amount': tx.originalAmount, // ★ 合併自朋友版(C)：送原始金額，載入時再換算 TWD
+        'amount': storedAmount, // 國外刷卡時讓後端總額也包含手續費；明細原價另存 metadata
         'currency': tx.currency, // ★ 合併自朋友版(C)：送原始幣別
         'note': tx.note,
         'occurred_at': tx.date.toIso8601String(),
@@ -273,6 +394,7 @@ class MysqlApiService {
       final id = int.tryParse(data['id'].toString()) ?? 0;
       if (id > 0) {
         await _saveCurrencyOverride(id.toString(), tx.currency); // ★ 合併自朋友版(C)
+        await _savePaymentMetadata(transactionId: id.toString(), userId: userId, tx: tx);
       }
       return id;
     }
@@ -410,6 +532,14 @@ class MysqlApiService {
 
     // ★ 合併自朋友版(C)：載入時以（覆蓋優先的）原始幣別查即時匯率換算成 TWD 統計基準，並保留原始金額/幣別
     final overrides = await _loadCurrencyOverrides();
+    final transactionIds = data
+        .whereType<Map>()
+        .map((row) => row['id']?.toString() ?? '')
+        .where((id) => id.isNotEmpty);
+    final paymentMetadata = await _fetchPaymentMetadata(
+      userId: userId,
+      transactionIds: transactionIds,
+    );
 
     // 統計基準一律換算成 TWD；每筆明細仍保留原始幣別與原始金額。
     // 首頁再把 TWD 基準金額顯示成使用者的「預設幣別」，避免旅行幣別干擾舊資料。
@@ -429,14 +559,27 @@ class MysqlApiService {
       final row = Map<String, dynamic>.from(rawRow);
       final id = row['id'].toString();
       final amountValue = row['amount'];
-      final originalAmount = amountValue is num
+      final backendAmount = amountValue is num
           ? amountValue.toDouble()
           : (double.tryParse(amountValue?.toString() ?? '') ?? 0.0);
 
+      final metadata = paymentMetadata[id];
+      final savedPurchaseAmount = metadata?['purchase_amount'];
+      final originalAmount = savedPurchaseAmount is num
+          ? savedPurchaseAmount.toDouble()
+          : (double.tryParse(savedPurchaseAmount?.toString() ?? '') ?? backendAmount);
+
       final backendCurrency = CurrencyService.tryNormalizeCode(row['currency']?.toString()) ?? 'TWD';
-      final rawCurrency = CurrencyService.tryNormalizeCode(overrides[id]) ?? backendCurrency;
-      final rate = await rateToTwd(rawCurrency);
-      final normalizedAmount = originalAmount * rate;
+      final rawCurrency = CurrencyService.tryNormalizeCode(metadata?['currency']?.toString()) ??
+          CurrencyService.tryNormalizeCode(overrides[id]) ??
+          backendCurrency;
+      final savedRate = _asDouble(metadata?['exchange_rate_to_twd']);
+      final rate = savedRate > 0 ? savedRate : await rateToTwd(rawCurrency);
+      final isForeignCard = metadata?['is_foreign_card'] == true ||
+          metadata?['is_foreign_card']?.toString() == '1';
+      final foreignFeeRate = _asDouble(metadata?['foreign_fee_rate']);
+      final foreignFeeAmountTwd = _asDouble(metadata?['foreign_fee_amount_twd']);
+      final normalizedAmount = originalAmount * rate + foreignFeeAmountTwd;
 
       final dateStr = (row['date'] ?? '').toString();
       DateTime dt;
@@ -460,6 +603,13 @@ class MysqlApiService {
         category: category,
         categoryIcon: _guessIconByName(category),
         type: txType,
+        isForeignCard: isForeignCard,
+        foreignFeeRate: foreignFeeRate,
+        foreignFeeAmountTwd: foreignFeeAmountTwd,
+        exchangeRateToTwd: rate,
+        exchangeRateSource: metadata?['exchange_rate_source']?.toString() ?? '',
+        exchangeRateType: metadata?['exchange_rate_type']?.toString() ?? '',
+        exchangeRateDate: metadata?['exchange_rate_date']?.toString(),
       ));
     }
     return result;
@@ -471,6 +621,7 @@ class MysqlApiService {
       queryParameters: {'user_id': userId},
     );
     await _removeCurrencyOverride(id.toString()); // ★ 合併自朋友版(C)
+    await _removePaymentMetadata(id.toString(), userId);
   }
 
   Future<void> updateTransaction({
@@ -482,6 +633,9 @@ class MysqlApiService {
     if (txId <= 0) return;
 
     final direction = tx.type == model.TransactionType.income ? 'income' : 'expense';
+    final storedAmount = tx.isForeignCard
+        ? tx.originalAmount * (1 + tx.foreignFeeRate)
+        : tx.originalAmount;
 
     await _dio.put(
       '${baseUrl}/transactions/$txId',
@@ -490,13 +644,19 @@ class MysqlApiService {
         'target': target,
         'direction': direction,
         'category': tx.category,
-        'amount': tx.originalAmount, // ★ 合併自朋友版(C)：送原始金額
+        'amount': storedAmount,
         'currency': tx.currency, // ★ 合併自朋友版(C)：送原始幣別
         'note': tx.note,
         'occurred_at': tx.date.toIso8601String(),
       },
     );
     await _saveCurrencyOverride(txId.toString(), tx.currency); // ★ 合併自朋友版(C)
+    await _savePaymentMetadata(transactionId: txId.toString(), userId: userId, tx: tx);
+  }
+
+  static double _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '') ?? 0;
   }
 
   Future<Map<String, dynamic>> fetchDailySummary({

@@ -5,6 +5,7 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
 import 'package:user_interface/services/game_api_service.dart';
 import 'mission_page.dart'; // ★ 合併自朋友版：任務中心入口
+import 'pet_choice_shop_page.dart';
 
 class GachaPage extends StatefulWidget {
   const GachaPage({super.key});
@@ -75,6 +76,12 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     await _loadCoins();
   }
 
+  Future<void> _openPetChoiceShop() async {
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const PetChoiceShopPage()),
+    );
+  }
+
   void _initCapsules() {
     final rng = Random();
     _capsulePositions = List.generate(16, (index) {
@@ -125,11 +132,11 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
   // 扭蛋：優先由後端決定結果，離線時使用本地機率池
   // 扭蛋：線上以「扭蛋幣」原子扣款（合併自朋友版經濟），斷線則退回你原本的本地機率池、一樣扣扭蛋幣。
   void _startGacha() async {
-    const cost = 100;
+    const cost = 10;
     if (_isRolling) return;
     if (_userCoins < cost) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('扭蛋幣不足！完成登入或任務可以獲得扭蛋幣。')),
+        const SnackBar(content: Text('扭蛋幣不足！完成記帳任務可以獲得扭蛋幣。')),
       );
       return;
     }
@@ -166,6 +173,7 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
           'type': type,
           'name': (pet['name'] ?? pet['species_name'] ?? '新寵物').toString(),
           'color': _getPetColor(type),
+          'duplicate': apiResult['duplicate'] == true, // ★ 任務3：帶入後端回傳的「是否為已擁有的同物種」
         };
       }
     } catch (_) {
@@ -188,24 +196,41 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     return Scaffold(
       backgroundColor: const Color(0xFFFFF5F5),
       appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0, foregroundColor: Colors.brown),
-      body: Center(
-        child: Column(
-          children: [
-            _buildCoinBadge(),
-            const SizedBox(height: 12),
-            TextButton.icon( // ★ 合併自朋友版：任務中心入口
-              onPressed: _openMissions,
-              icon: const Icon(Icons.task_alt_rounded),
-              label: const Text('查看任務與領取扭蛋幣'),
-            ),
-            const Spacer(),
-            _buildGachaMachineBody(),
-            const SizedBox(height: 50),
-            _buildActionBtn(),
-            const SizedBox(height: 80),
-          ],
-        ),
-      ),
+      // ★ 任務1：外層改為 LayoutBuilder + 可捲動容器，避免內容比螢幕高時，
+      //   底部出現黃黑「BOTTOM OVERFLOWED BY N PIXELS」警示條（原本用 Center 直接放 Column 會溢位）。
+      //   有空間時維持原本置中/Spacer 的排版，空間不足時才允許輕微捲動，畫面就不會再有黃框。
+      body: LayoutBuilder(
+        builder: (context, constraints) => SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: IntrinsicHeight(
+              child: Center(
+                child: Column(
+                  children: [
+                    _buildCoinBadge(),
+                    const SizedBox(height: 12),
+                    TextButton.icon( // ★ 合併自朋友版：任務中心入口
+                      onPressed: _openMissions,
+                      icon: const Icon(Icons.task_alt_rounded),
+                      label: const Text('查看任務與領取扭蛋幣'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _openPetChoiceShop,
+                      icon: const Icon(Icons.card_giftcard_rounded),
+                      label: const Text('寵物自選商店（NT\$200／張）'),
+                    ),
+                    const Spacer(),
+                    _buildGachaMachineBody(),
+                    const SizedBox(height: 50),
+                    _buildActionBtn(),
+                    const SizedBox(height: 80),
+                  ],
+                ),
+              ), // ★ 任務1：關閉 Center
+            ), // ★ 任務1：關閉 IntrinsicHeight
+          ), // ★ 任務1：關閉 ConstrainedBox
+        ), // ★ 任務1：關閉 SingleChildScrollView
+      ), // ★ 任務1：關閉 LayoutBuilder
     );
   }
 
@@ -280,7 +305,7 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 18),
         decoration: BoxDecoration(color: _isRolling ? Colors.grey : const Color(0xFFFF5252), borderRadius: BorderRadius.circular(40), border: Border.all(color: Colors.black, width: 3), boxShadow: const [BoxShadow(color: Colors.black26, offset: Offset(0, 6))]),
-        child: Text(_isRolling ? "扭動中..." : "消耗 100 扭蛋幣 扭一次", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+        child: Text(_isRolling ? "扭動中..." : "消耗 10 扭蛋幣 扭一次", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
       ),
     );
   }
@@ -288,6 +313,7 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
   // --- 修正後的彈窗：動態顯示抽獎結果 ---
   void _showResultDialog(Map<String, dynamic>? res) {
     bool isNone = res == null;
+    final bool isDuplicate = !isNone && (res['duplicate'] == true); // ★ 任務3：判斷這次是否抽到「已擁有」的寵物
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -323,13 +349,19 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  isNone ? "銘謝惠顧" : "恭喜獲得：${res['name']}",
+                  // ★ 任務3：已擁有時改講「又抽到」，一眼看出是重複，不會誤以為是新寵物
+                  isNone
+                      ? "銘謝惠顧"
+                      : (isDuplicate ? "又抽到：${res['name']}" : "恭喜獲得：${res['name']}"),
                   style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  isNone ? "獲得了再接再厲飼料球！" : "新的夥伴已經加入圖鑑囉！",
+                  // ★ 任務3：已擁有 → 明確提示「已擁有」，讓玩家知道發生什麼事
+                  isNone
+                      ? "獲得了再接再厲飼料球！"
+                      : (isDuplicate ? "你已經擁有這隻夥伴了（已擁有）" : "新的夥伴已經加入圖鑑囉！"),
                   style: const TextStyle(color: Colors.grey, fontSize: 14),
                 ),
                 const SizedBox(height: 30),

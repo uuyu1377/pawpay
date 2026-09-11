@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async'; // ★ 修卡頓：用 unawaited 讓教練檢查改非阻塞
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
@@ -10,10 +11,12 @@ import 'package:user_interface/services/database_helper.dart';
 import 'package:user_interface/services/game_api_service.dart'; // ★ 合併自朋友版(B 遊戲資金)
 import 'package:user_interface/services/currency_service.dart';
 import 'package:user_interface/services/notification_service.dart';
+import 'package:user_interface/services/recurring_api_service.dart';
 
 import 'pages/home_page.dart';
 import 'pages/playground_page.dart';
 import 'pages/setting_page.dart';
+import 'pages/spending_analysis_page.dart'; // ★ 任務2：詳細分析頁
 import 'pages/voice_page.dart';
 import 'config/backend_config.dart';
 
@@ -49,6 +52,7 @@ class _MainAppShellState extends State<MainAppShell> {
   String _dailyReminderTime = "21:00";
   bool _monthlyBudgetReminderEnabled = true;
   int _monthlyBudgetAmount = 0;
+  int _monthlyTargetSavings = 0; // ★ 任務2：本月目標存款（先存後花）
   int _budgetThreshold = 90;
   String _currencyCode = 'TWD';
   CurrencyDisplaySettings _currencySettings = CurrencyDisplaySettings.twd(); // ★ 合併自朋友版(C)
@@ -63,11 +67,18 @@ class _MainAppShellState extends State<MainAppShell> {
   String? _pendingInvoiceNumber;
   double? _pendingAiConfidence;
   String? _pendingSuggestedSubCategory;
+  // ★ AI 自適應(閉環修正記憶)：從 /classify 帶回來的關鍵字 + AI 原始建議，存檔時用來寫回記憶並判斷有沒有被改。
+  String? _pendingMemoryKeyword;
+  String? _pendingAiMainForMemory;
+  String? _pendingAiSubForMemory;
+  bool _pendingFromMemory = false;
   String? _pendingAiModel;
   DateTime? _pendingOccurredAt;
   List<String> _pendingTags = [];
 
   final GlobalKey<HomePageState> _homeKey = GlobalKey<HomePageState>();
+  // ★ 即時同步：設定頁被 IndexedStack 保留在記憶體，切回來不會自動重載；用這把 key 主動叫它 reload。
+  final GlobalKey<SettingPageState> _settingsKey = GlobalKey<SettingPageState>();
 
   // 全部 16 隻寵物動畫清單（備用）
   static const List<String> _loadingAnimations = [
@@ -262,7 +273,7 @@ class _MainAppShellState extends State<MainAppShell> {
     _loadUserProfile();
     // AI 公告需要 Token，背景取得，不阻塞首頁
     _getAuthToken();
-    _loadData().then((_) {
+    _processRecurringThenLoad().then((_) {
       // 確保資料載入完畢後，再檢查是否要彈出總結
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _checkAndShowDailySummary();
@@ -270,6 +281,7 @@ class _MainAppShellState extends State<MainAppShell> {
         _checkDailyCheckInReward(); // ★ 合併自朋友版(B 遊戲資金)：每日簽到發扭蛋幣
         _refreshCurrencySettings(); // ★ 合併自朋友版(C)：載入預設幣別顯示設定
         _checkTravelCurrencyReturnReminder(); // ★ 合併自朋友版(C)：旅行結束提醒切回預設幣別
+        _checkMonthStartBudgetAdjustCard(); // ★ 任務2：月初動態調整小卡（當月第一次開、且收入差很多才跳）
       });
     }).whenComplete(() {
       // ★★★ 修正：資料載入結束後（不論成功或失敗）把首頁 loading 關掉 ★★★
@@ -280,6 +292,146 @@ class _MainAppShellState extends State<MainAppShell> {
         });
       }
     });
+  }
+
+  Future<void> _processRecurringThenLoad() async {
+    try {
+      final created = await RecurringApiService.instance.processDue();
+      if (created > 0) debugPrint('✅ 已自動建立 $created 筆到期固定收支');
+    } catch (e) {
+      // 固定收支後端暫時離線時仍照常進入首頁，避免影響原有記帳流程。
+      debugPrint('固定收支檢查暫時略過：$e');
+    }
+    await _loadData();
+  }
+
+  // ★ 任務2：月初動態調整小卡。當月第一次開 App、且「依收入建議的預算」跟目前設定差很多(≥20%)時，
+  //   跳一張小卡建議把預算調成 $X（一鍵套用/先不用；建議但使用者說了算，不自動改）。一個月只跳一次。
+  Future<double> _lastMonthIncomeForCard() async {
+    try {
+      final txs = await DatabaseHelper.instance.getAllTransactions();
+      final now = DateTime.now();
+      final lm = DateTime(now.year, now.month - 1, 1);
+      return txs
+          .where((tx) =>
+      tx.type == TransactionType.income &&
+          tx.date.year == lm.year &&
+          tx.date.month == lm.month)
+          .fold<double>(0, (s, tx) => s + tx.amount.abs());
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<double> _monthlyRecurringIncomeForCard() async {
+    try {
+      final rules = await RecurringApiService.instance.fetchRules();
+      double t = 0;
+      for (final r in rules) {
+        if (!r.isActive) continue;
+        if (r.direction == 'income') t += _toMonthlyAmount(r.amount, r.cadence);
+      }
+      return t;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<void> _checkMonthStartBudgetAdjustCard() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final now = DateTime.now();
+      final monthKey = '${now.year}-${now.month.toString().padLeft(2, '0')}';
+      // 本月已顯示過就不再打擾（不論上次是套用還是忽略）
+      if (prefs.getString('budget_adjust_card_shown_month') == monthKey) return;
+
+      // ★ 選項B+第1層：建議預算改用三層 fallback（跟設定頁一致）：
+      //   1) 歷史夠 → 近3個月平均花費；2) 有收入 → 收入×身分比例；3) 都沒有 → 不跳(交給設定頁預設)。
+      double incomeBase = await _lastMonthIncomeForCard();
+      if (incomeBase <= 0) incomeBase = await _monthlyRecurringIncomeForCard();
+      final histStats = await _loadHistoryExpenseStats();
+      final double histAvg = (histStats['avg'] as double);
+      final bool historyEnough = (histStats['monthsWithData'] as int) >= 2 && (histStats['txCount'] as int) >= 10;
+      int suggested;
+      if (historyEnough && histAvg > 0) {
+        suggested = histAvg.round();
+      } else if (incomeBase > 0) {
+        suggested = (incomeBase * _budgetRatioForIdentity(_userIdentity)).round();
+      } else {
+        suggested = 0;
+      }
+      final int current = prefs.getInt('setting_monthly_budget_amount') ?? _monthlyBudgetAmount;
+      if (suggested <= 0 || current <= 0) return; // 沒有收入/歷史資料就不跳
+
+      final double diffRatio = (suggested - current).abs() / current;
+      if (diffRatio < 0.2) return; // 差不多(<20%)就不打擾
+
+      // 先標記本月已顯示，避免同一個月重複跳
+      await prefs.setString('budget_adjust_card_shown_month', monthKey);
+      if (!mounted) return;
+
+      final bool up = suggested > current;
+      await showDialog(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: Row(
+            children: [
+              Icon(up ? Icons.trending_up : Icons.trending_down,
+                  color: up ? Colors.green : Colors.orange),
+              const SizedBox(width: 8),
+              const Text('月初預算建議'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                up
+                    ? '你最近的收入變多了，要不要把每月預算往上調？'
+                    : '你最近的收入變少了，建議把每月預算調低一點，比較不會月底吃緊。',
+                style: const TextStyle(height: 1.4),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade100,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  '目前預算 ${_formatMoney(current.toDouble())}\n建議調成 ${_formatMoney(suggested.toDouble())}（收入的 80%）',
+                  style: const TextStyle(fontWeight: FontWeight.w600, height: 1.5),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('先不用'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await prefs.setInt('setting_monthly_budget_amount', suggested);
+                if (mounted) setState(() => _monthlyBudgetAmount = suggested);
+                if (ctx.mounted) Navigator.of(ctx).pop();
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('已把每月預算調成 ${_formatMoney(suggested.toDouble())}')),
+                  );
+                }
+              },
+              child: const Text('套用建議'),
+            ),
+          ],
+        ),
+      );
+    } catch (_) {
+      // 任何錯誤都不影響進首頁
+    }
   }
 
   // ★★★ 新增：自動取得並儲存 JWT Token 的函式 ★★★
@@ -712,18 +864,9 @@ class _MainAppShellState extends State<MainAppShell> {
   // ★★★★★ 以下為合併自朋友版(B 遊戲資金)：每日簽到、發票號碼解析、記帳發獎勵 ★★★★★
   Future<void> _checkDailyCheckInReward() async {
     try {
-      final result = await GameApiService.instance.dailyCheckIn();
-      final earned = int.tryParse(result['earned_gacha_coins']?.toString() ?? '0') ?? 0;
-      final streak = int.tryParse(result['login_streak']?.toString() ?? '0') ?? 0;
-      if (earned <= 0 || !mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('連續登入第 $streak 天，獲得扭蛋幣 +$earned'),
-          duration: const Duration(milliseconds: 1800),
-        ),
-      );
+      await GameApiService.instance.dailyCheckIn();
     } catch (e) {
-      debugPrint('連續登入獎勵失敗：$e');
+      debugPrint('登入日期同步失敗：$e');
     }
   }
 
@@ -885,6 +1028,8 @@ class _MainAppShellState extends State<MainAppShell> {
     required String entryMethod,
     required double amount,
     required bool isIncome,
+    required String category,
+    required DateTime occurredAt,
     String? invoiceNumber,
   }) async {
     final messages = <String>[];
@@ -936,6 +1081,10 @@ class _MainAppShellState extends State<MainAppShell> {
         await GameApiService.instance.recordMissionEvent(
           source: entryMethod,
           isInvoice: isVerifiedInvoice,
+          amountTwd: amount,
+          category: category,
+          occurredAt: occurredAt,
+          uniqueHint: isVerifiedInvoice ? normalizedInvoice : null,
         );
 
         // ★★★ 新增：記完進度後查一次任務，若有「已達成但還沒領」的任務就提醒使用者 ★★★
@@ -963,9 +1112,12 @@ class _MainAppShellState extends State<MainAppShell> {
       final prefs = await SharedPreferences.getInstance();
       final enabled = prefs.getBool('setting_monthly_budget_reminder') ?? _monthlyBudgetReminderEnabled;
       final budget = prefs.getInt('setting_monthly_budget_amount') ?? _monthlyBudgetAmount;
-      // ★★★ 修正：門檻固定 90%，不再讀使用者自選值（原本可自選 70/80/90/100%
+      // ★ 任務2：本月目標存款（先存後花），用來算「剩餘可支配 / 每天可花」，不影響閾值觸發基準。
+      final targetSavings = prefs.getInt('setting_monthly_target_savings') ?? _monthlyTargetSavings;
+      // ★★★ 修正：門檻固定，不再讀使用者自選值（原本可自選 70/80/90/100%
       //     會跟固定的三級提醒衝突，設定頁的下拉選單已移除）。★★★
-      const int threshold = 90;
+      // ★ 任務2：教練式三級門檻改為 50 / 80 / 100（中間級由 90 改成 80，配合新規格）。
+      const int threshold = 80;
       if (!enabled || budget <= 0) return;
 
       final now = DateTime.now();
@@ -978,9 +1130,9 @@ class _MainAppShellState extends State<MainAppShell> {
 
       final percent = spent / budget * 100;
 
-      // ★★★ 修改：三級判斷 (50 聰明版 / threshold[預設90] / 100) ★★★
+      // ★★★ 修改：三級判斷 (50 聰明版 / threshold[80] / 100) ★★★
       // - 100：一到就跳
-      // - threshold(預設90)：一到就跳
+      // - threshold(80)：一到就跳
       // - 50：只有「已花比例 > 時間比例」(代表真的花太快) 才跳，避免月初繳房租就誤觸
       final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
       final timeRatio = now.day / daysInMonth * 100;
@@ -992,20 +1144,58 @@ class _MainAppShellState extends State<MainAppShell> {
       } else if (percent >= 50 && percent > timeRatio) {
         level = 50;
       }
-      if (level == 0) return;
+      if (level == 0) {
+        // ★#3：花費掉回 50% 以下時，把旗標歸零，之後再花超才會重新提醒。
+        final key0 = 'last_budget_alert_level_${_monthKey(now)}';
+        if ((prefs.getInt(key0) ?? 0) != 0) await prefs.setInt(key0, 0);
+        return;
+      }
 
       final key = 'last_budget_alert_level_${_monthKey(now)}';
       final lastLevel = prefs.getInt(key) ?? 0;
+      // ★#3：花費往下掉（例如刪掉紀錄後 % 變低）時，把旗標下修到目前級別，
+      //   讓之後再花超能重新觸發提醒；此刻只下修、不重複跳窗。
+      if (level < lastLevel) {
+        await prefs.setInt(key, level);
+        return;
+      }
       if (lastLevel >= level) return;
       await prefs.setInt(key, level);
 
       if (!mounted) return;
+
+      // ★ 任務2(升級公式)：讀「固定收支」規則，算出月固定收入 + 本月尚未入帳的固定支出。
+      //   雙重計算防呆：固定支出到期後會自動入帳、已經算進上面的 spent，所以這裡「只預留本月還沒扣的那幾筆」，
+      //   已經扣過的不再重複扣。抓不到規則(離線/沒設)就都當 0，彈窗會自動退回「每月預算」公式。
+      double monthlyIncome = 0;
+      double reserveFixed = 0;
+      try {
+        final rules = await RecurringApiService.instance.fetchRules().timeout(const Duration(seconds: 4)); // ★ 修卡頓：最多等 4 秒，逾時就用「每月預算」公式
+        for (final r in rules) {
+          if (!r.isActive) continue;
+          if (r.direction == 'income') {
+            monthlyIncome += _toMonthlyAmount(r.amount, r.cadence);
+          } else {
+            // 本月才會扣、目前還沒入帳的固定支出 → 預留起來（用 nextRunDate 落在本月判斷）
+            if (r.nextRunDate.year == now.year && r.nextRunDate.month == now.month) {
+              reserveFixed += r.amount;
+            }
+          }
+        }
+      } catch (_) {
+        monthlyIncome = 0;
+        reserveFixed = 0;
+      }
+
       // ★★★ 修改：改成呼叫「AI 消費洞察彈窗」(拿不到網路會自動退回原本的制式文字) ★★★
       await _showSpendingInsightDialog(
         level: level,
         spent: spent,
         budget: budget.toDouble(),
         percent: percent,
+        targetSavings: targetSavings.toDouble(), // ★ 任務2：帶入本月目標存款
+        monthlyIncome: monthlyIncome, // ★ 任務2：帶入月固定收入
+        reserveFixed: reserveFixed, // ★ 任務2：帶入本月尚未入帳的固定支出
       );
     } catch (e) {
       debugPrint('月底預算提醒檢查失敗：$e');
@@ -1019,6 +1209,9 @@ class _MainAppShellState extends State<MainAppShell> {
     required double spent,
     required double budget,
     required double percent,
+    double targetSavings = 0, // ★ 任務2：本月目標存款（先存後花），預設 0 不影響舊呼叫
+    double monthlyIncome = 0, // ★ 任務2：月固定收入（來自固定收支規則），0 代表沒設/離線
+    double reserveFixed = 0, // ★ 任務2：本月尚未入帳的固定支出（要先預留，避免月底突然被扣）
   }) async {
     // 準備「斷網備用文字」(等同原本的制式提醒)
     final String fallbackMsg = level >= 100
@@ -1040,9 +1233,10 @@ class _MainAppShellState extends State<MainAppShell> {
         body: jsonEncode({
           "monthly_budget": budget,
           "current_pet": _currentPetKey, // ★ 帶入當前上場寵物
-          "level": level,                // ★ 帶入門檻級別 (50/90/100)
+          "level": level,                // ★ 帶入門檻級別 (50/80/100)
+          "identity": _userIdentity,     // ★ 任務2：帶入身分別(u23/a23_35/a35p)微調口吻
         }),
-      ).timeout(const Duration(seconds: 20));
+      ).timeout(const Duration(seconds: 6)); // ★ 修卡頓：20 秒縮到 6 秒，後端慢時也不會卡太久（拿不到就用制式文字）
 
       if (response.statusCode == 200) {
         final resJson = jsonDecode(response.body);
@@ -1072,6 +1266,33 @@ class _MainAppShellState extends State<MainAppShell> {
     // 顯示內容：有 AI 就用 AI 洞察，否則退回制式文字
     final String bodyText = aiComment.isNotEmpty ? aiComment : fallbackMsg;
 
+    // ★ 任務2(呈現升級)：關鍵數字全部用程式算（AI 只負責寵物口吻），這裡先算好給「放大色塊」顯示。
+    //   ★修正(基準統一)：可花上限一律用「每月預算 − 目標存款」為基準（跟進度條/門檻% 一致），
+    //   收入不再混進這裡（收入全貌改放「詳細分析頁」的收入分配卡），避免「一邊超支一邊說很寬裕」。
+    final DateTime _now = DateTime.now();
+    final int _daysInMonth = DateTime(_now.year, _now.month + 1, 0).day;
+    final int _daysLeft = (_daysInMonth - _now.day + 1).clamp(1, _daysInMonth);
+    final double _usableBudget = (budget - targetSavings) > 0 ? (budget - targetSavings) : 0.0; // 可花上限=預算−目標存款
+    final double _remaining = _usableBudget - spent;
+    final double _perDay = _remaining > 0 ? _remaining / _daysLeft : 0.0;
+    final double _projected = _now.day > 0 ? spent / _now.day * _daysInMonth : spent;
+    final double _projectedOver = _projected - _usableBudget;
+
+    // 放大的「一句話重點」：100=已超支 / 80=每天可花 / 50=流速預測
+    final String _keyLine = level >= 100
+        ? '已超支 ${_formatMoney((spent - budget).abs())}'
+        : (level >= 80
+        ? '每天可花 ${_formatMoney(_perDay)}'
+        : (_projectedOver > 0
+        ? '照這速度月底恐超支 ${_formatMoney(_projectedOver)}'
+        : '照這速度月底約花 ${_formatMoney(_projected)}'));
+    // 縮小的細節副標
+    final String _keySub = level >= 100
+        ? '本月已花 ${_formatMoney(spent)}／預算 ${_formatMoney(budget)}'
+        : (level >= 80
+        ? '剩 ${_formatMoney(_remaining > 0 ? _remaining : 0)}，還有 $_daysLeft 天'
+        : '目前已花 ${percent.round()}%，還有 $_daysLeft 天');
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1080,20 +1301,50 @@ class _MainAppShellState extends State<MainAppShell> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 進度條
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: LinearProgressIndicator(
-                value: barValue,
-                minHeight: 12,
-                backgroundColor: Colors.grey.shade200,
-                valueColor: AlwaysStoppedAnimation<Color>(barColor),
+            // 進度條 ★ 任務2(呈現升級)：改用 TweenAnimationBuilder，開啟時從 0 慢慢跑到目前 %，依級變色（綠→橘→紅）
+            TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: barValue),
+              duration: const Duration(milliseconds: 700),
+              curve: Curves.easeOut,
+              builder: (context, animatedValue, _) => ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: LinearProgressIndicator(
+                  value: animatedValue,
+                  minHeight: 12,
+                  backgroundColor: Colors.grey.shade200,
+                  valueColor: AlwaysStoppedAnimation<Color>(barColor),
+                ),
               ),
             ),
             const SizedBox(height: 8),
             Text(
               '本月已花 ${_formatMoney(spent)} / 預算 ${_formatMoney(budget)}（${percent.round()}%）',
               style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+            const SizedBox(height: 12),
+            // ★ 任務2(呈現升級)：關鍵數字放大 + 色塊（一句話結論在上、細節小字在下），依級別變色
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+              decoration: BoxDecoration(
+                color: barColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: barColor, width: 2),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _keyLine,
+                    style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: barColor),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _keySub,
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
             // 寵物語氣洞察 (對話氣泡感)
@@ -1125,6 +1376,16 @@ class _MainAppShellState extends State<MainAppShell> {
           ],
         ),
         actions: [
+          // ★ 任務2：看詳細分析 → 導到詳細分析頁（資料層細項）
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const SpendingAnalysisPage()),
+              );
+            },
+            child: const Text('看詳細分析'),
+          ),
           TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('知道了')),
         ],
       ),
@@ -1157,6 +1418,76 @@ class _MainAppShellState extends State<MainAppShell> {
     }
   }
 
+  // ★ 選項B：依身分別「建議預算比例」（收入的幾成當預算），與 setting_page 一致。
+  double _budgetRatioForIdentity(String code) {
+    switch (code) {
+      case 'a23_35':
+        return 0.70;
+      case 'a35p':
+        return 0.65;
+      case 'u23':
+      default:
+        return 0.85;
+    }
+  }
+
+  // ★ 第1層：近 3 個完整月（不含本月）的「平均每月支出」與資料量，與 setting_page 一致。
+  Future<Map<String, dynamic>> _loadHistoryExpenseStats() async {
+    try {
+      final txs = await DatabaseHelper.instance.getAllTransactions();
+      final now = DateTime.now();
+      final Map<String, double> monthTotals = {};
+      for (int i = 1; i <= 3; i++) {
+        final m = DateTime(now.year, now.month - i, 1);
+        monthTotals['${m.year}-${m.month}'] = 0;
+      }
+      int txCount = 0;
+      for (final tx in txs) {
+        if (tx.type != TransactionType.expense) continue;
+        for (int i = 1; i <= 3; i++) {
+          final m = DateTime(now.year, now.month - i, 1);
+          if (tx.date.year == m.year && tx.date.month == m.month) {
+            final key = '${m.year}-${m.month}';
+            monthTotals[key] = (monthTotals[key] ?? 0) + tx.amount.abs();
+            txCount++;
+            break;
+          }
+        }
+      }
+      final withData = monthTotals.values.where((v) => v > 0).toList();
+      final double avg = withData.isNotEmpty ? withData.reduce((a, b) => a + b) / withData.length : 0.0;
+      return {'avg': avg, 'monthsWithData': withData.length, 'txCount': txCount};
+    } catch (_) {
+      return {'avg': 0.0, 'monthsWithData': 0, 'txCount': 0};
+    }
+  }
+
+  // ★ 任務2：本月目標存款的身分別預設值（與 setting_page 一致）。學生低、上班族先存後花、家庭中等。
+  int _defaultTargetSavingsForIdentity(String code) {
+    switch (code) {
+      case 'a23_35':
+        return 5000;
+      case 'a35p':
+        return 8000;
+      case 'u23':
+      default:
+        return 1000;
+    }
+  }
+
+  // ★ 任務2：把固定收支的金額依週期換算成「每月等值」(給收入基準用)。cadence 目前只有 weekly/monthly/yearly。
+  double _toMonthlyAmount(double amount, String cadence) {
+    switch (cadence) {
+      case 'weekly':
+        return amount * 4.345; // 一個月約 4.345 週
+      case 'yearly':
+        return amount / 12.0;
+      case 'monthly':
+      default:
+        return amount;
+    }
+  }
+
   Future<void> _loadRuntimeSettings() async {
     final prefs = await SharedPreferences.getInstance();
     final identity = prefs.getString('user_identity') ?? "u23";
@@ -1170,6 +1501,7 @@ class _MainAppShellState extends State<MainAppShell> {
       _dailyReminderTime = prefs.getString('setting_daily_reminder_time') ?? "21:00";
       _monthlyBudgetReminderEnabled = prefs.getBool('setting_monthly_budget_reminder') ?? true;
       _monthlyBudgetAmount = prefs.getInt('setting_monthly_budget_amount') ?? _defaultBudgetForIdentity(identity);
+      _monthlyTargetSavings = prefs.getInt('setting_monthly_target_savings') ?? _defaultTargetSavingsForIdentity(identity); // ★ 任務2
       _budgetThreshold = prefs.getInt('setting_budget_threshold') ?? 90;
       _currencyCode = CurrencyService.codeFromSetting(prefs.getString('setting_currency_code') ?? CurrencyService.codeFromSetting(prefs.getString('setting_currency')));
     });
@@ -1187,6 +1519,7 @@ class _MainAppShellState extends State<MainAppShell> {
       _dailyReminderTime = prefs.getString('setting_daily_reminder_time') ?? "21:00";
       _monthlyBudgetReminderEnabled = prefs.getBool('setting_monthly_budget_reminder') ?? true;
       _monthlyBudgetAmount = prefs.getInt('setting_monthly_budget_amount') ?? _defaultBudgetForIdentity(identity);
+      _monthlyTargetSavings = prefs.getInt('setting_monthly_target_savings') ?? _defaultTargetSavingsForIdentity(identity); // ★ 任務2
       _budgetThreshold = prefs.getInt('setting_budget_threshold') ?? 90;
       _currencyCode = CurrencyService.codeFromSetting(prefs.getString('setting_currency_code') ?? CurrencyService.codeFromSetting(prefs.getString('setting_currency')));
     });
@@ -1242,6 +1575,8 @@ class _MainAppShellState extends State<MainAppShell> {
       final url = Uri.parse('${BackendConfig.baseUrl}/classify');
       final now = DateTime.now();
       String timeStr = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+      // ★ AI 自適應：分類記憶要用 user_id 才查得到
+      final String _memUserId = (await SharedPreferences.getInstance()).getString('user_id') ?? 'unknown_user';
 
       final response = await http.post(
         url,
@@ -1252,6 +1587,7 @@ class _MainAppShellState extends State<MainAppShell> {
         body: jsonEncode({
           "scanned_content": "",
           "user_input": voiceText,
+          "user_id": _memUserId,     // ★ AI 自適應：帶入 user_id 才能查你的分類記憶
           "identity": _userIdentity,
           "current_time": timeStr,
           "current_pet": _currentPetKey // ★★★ 新增：傳遞寵物參數 ★★★
@@ -1283,6 +1619,8 @@ class _MainAppShellState extends State<MainAppShell> {
       final url = Uri.parse('${BackendConfig.baseUrl}/classify');
       final now = DateTime.now();
       String timeStr = "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}";
+      // ★ AI 自適應：分類記憶要用 user_id 才查得到
+      final String _memUserId = (await SharedPreferences.getInstance()).getString('user_id') ?? 'unknown_user';
 
       final response = await http.post(
         url,
@@ -1293,6 +1631,7 @@ class _MainAppShellState extends State<MainAppShell> {
         body: jsonEncode({
           "scanned_content": scannedText,
           "user_input": "我是$_userNickname",
+          "user_id": _memUserId,     // ★ AI 自適應：帶入 user_id 才能查你的分類記憶
           "identity": _userIdentity,
           "current_time": timeStr,
           "current_pet": _currentPetKey // ★★★ 新增：傳遞寵物參數 ★★★
@@ -1317,6 +1656,15 @@ class _MainAppShellState extends State<MainAppShell> {
     double amount = data['amount'] != null ? (data['amount'] as num).toDouble() : 0.0;
     String mainCat = data['matched_main_category'] ?? "";
     String subCat = data['matched_sub_category'] ?? "";
+
+    // ★ AI 自適應(閉環修正記憶)：記下這次的關鍵字、是否來自記憶（AI 原始建議稍後在確認對話框前擷取）。
+    _pendingMemoryKeyword = (data['memory_keyword'] ?? '').toString();
+    _pendingFromMemory = data['from_memory'] == true;
+    if (_pendingFromMemory && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('🧠 已依你之前的習慣自動分類'), duration: Duration(seconds: 2)),
+      );
+    }
 
     // ★★★ 終極完整版：AI 翻譯蒟蒻 (字詞校正防呆) ★★★
     // 解決 AI 偷懶省略字，導致預設分類被誤認為自創 (is_custom=1) 的問題
@@ -1483,6 +1831,10 @@ class _MainAppShellState extends State<MainAppShell> {
     }
 
     if (mounted) {
+      // ★ AI 自適應(閉環修正記憶)：此刻的 mainCat/subCat 就是「AI 給的預設值」；
+      //   使用者若在確認框改掉，_saveAIResult 拿到的就會不同 → 判定為修正。
+      _pendingAiMainForMemory = mainCat;
+      _pendingAiSubForMemory = subCat;
       if (isIncome) {
         // 防呆校正：就算後端主分類偷懶，我們也幫它強制冠上一個預設收入類別
         if (mainCat.isEmpty || mainCat == '其他支出' || mainCat == '收入') mainCat = '其他收入';
@@ -1834,41 +2186,83 @@ class _MainAppShellState extends State<MainAppShell> {
 
   // ★★★ AI 記帳 (加入 isIncome 判斷方向) ★★★
 
+  void _clearPendingAiTransaction() {
+    _pendingAiJson = null;
+    _pendingMerchant = null;
+    _pendingItemsSummary = null;
+    _pendingInvoiceNumber = null;
+    _pendingCurrencyCode = null;
+    _pendingAiConfidence = null;
+    _pendingSuggestedSubCategory = null;
+    _pendingAiModel = null;
+    _pendingOccurredAt = null;
+    _pendingTags = [];
+  }
+
+  // ★ AI 自適應：從子分類反查主分類（手動/編輯記帳寫回記憶時，補出 main）。查不到就用自己當 main。
+  String _mainCategoryForSub(String sub) {
+    String main = sub;
+    _categoryData.forEach((key, value) {
+      final subs = value['subs'];
+      if (subs is List && subs.contains(sub)) {
+        main = key;
+      }
+    });
+    return main;
+  }
+
+  // ★ AI 自適應(閉環修正記憶)：把「keyword → 最終分類」寫回後端記憶。
+  //   有 memoryKeyword(AI 流程) 就用它；沒有(手動/編輯)就送 userInput 讓後端用同一套規則推 keyword。
+  //   fire-and-forget、包在 try 裡，即使失敗也絕不影響記帳。corrected=true 代表使用者改過/明確指定。
+  Future<void> _upsertCategoryMemory({
+    required String mainCategory,
+    required String subCategory,
+    String? memoryKeyword,
+    String userInput = '',
+    required bool corrected,
+  }) async {
+    try {
+      final bool hasKey = memoryKeyword != null && memoryKeyword.trim().isNotEmpty;
+      if ((!hasKey && userInput.trim().isEmpty) || mainCategory.trim().isEmpty) return;
+      final prefs = await SharedPreferences.getInstance();
+      final uid = prefs.getString('user_id') ?? 'unknown_user';
+      final token = await _getAuthToken();
+      await http.post(
+        Uri.parse('${BackendConfig.baseUrl}/category-memory/upsert'),
+        headers: {
+          "Content-Type": "application/json",
+          if (token != null) "Authorization": "Bearer $token",
+        },
+        body: jsonEncode({
+          "user_id": uid,
+          if (hasKey) "memory_keyword": memoryKeyword,
+          "user_input": userInput,
+          "main_category": mainCategory,
+          "sub_category": subCategory,
+          "corrected": corrected,
+        }),
+      ).timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // 學習失敗不影響記帳
+    }
+  }
+
   Future<void> _saveAIResult(double amount, String subCat, String mainCat, String note, String aiComment, {bool isIncome = false}) async {
+    String claimedInvoiceNumber = '';
+    String? invoiceClaimToken;
+    bool transactionSaved = false;
     try {
       // 根據我們從彈窗傳進來的狀態，決定資料庫寫入方向
       String dbType = isIncome ? 'income' : 'expense';
 
-      // ★★★ 新增：同一張發票只能記一次，避免重複新增交易 + 重複領地產資金 ★★★
+      // 全域原子占用：不只比對目前使用者，也能擋下其他帳號已掃描的同一張發票。
       final String dupInvoiceNumber = _normalizeInvoiceNumber(_pendingInvoiceNumber);
       if (dupInvoiceNumber.isNotEmpty) {
-        bool alreadyRecorded = false;
-        try {
-          alreadyRecorded = await GameApiService.instance.hasInvoiceReward(
-            invoiceNumber: dupInvoiceNumber,
-          );
-        } catch (e) {
-          debugPrint('發票重複檢查（後端）失敗，改用本地紀錄判斷：$e');
-        }
-        if (!alreadyRecorded) {
-          // 後端問不到時的備援：看看目前已載入的交易備註裡有沒有同一張發票
-          alreadyRecorded =
-              _transactions.any((tx) => tx.note.contains(dupInvoiceNumber));
-        }
-        if (alreadyRecorded) {
-          // 清掉暫存，避免下一筆沿用到這張發票
-          _pendingAiJson = null;
-          _pendingMerchant = null;
-          _pendingItemsSummary = null;
-          _pendingInvoiceNumber = null;
-          _pendingCurrencyCode = null;
-          _pendingAiConfidence = null;
-          _pendingSuggestedSubCategory = null;
-          _pendingAiModel = null;
-          _pendingOccurredAt = null;
-          _pendingTags = [];
-
-          // ★★★ 修改：改用橘底提示列（警告色），不再跳出需要按確認的浮窗 ★★★
+        final claim = await GameApiService.instance.claimInvoice(
+          invoiceNumber: dupInvoiceNumber,
+        );
+        if (claim['status'] == 'duplicate') {
+          _clearPendingAiTransaction();
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
@@ -1879,6 +2273,11 @@ class _MainAppShellState extends State<MainAppShell> {
             );
           }
           return;
+        }
+        claimedInvoiceNumber = dupInvoiceNumber;
+        invoiceClaimToken = claim['claim_token']?.toString();
+        if (invoiceClaimToken == null || invoiceClaimToken!.isEmpty) {
+          throw StateError('後端沒有回傳發票占用憑證');
         }
       }
 
@@ -1911,7 +2310,7 @@ class _MainAppShellState extends State<MainAppShell> {
       final rawInput = _pendingRawInput;
       final tags = _pendingTags;
 
-      await DatabaseHelper.instance.insertAiTransaction(
+      final insertedTransactionId = await DatabaseHelper.instance.insertAiTransaction(
         amount: amount,
         currency: _pendingCurrencyCode ?? _currencyCode, // ★ 合併自朋友版(C)：用本次掃描/語音幣別
         direction: dbType, // ★ 改用動態變數，解決原本寫死 'expense' 的問題
@@ -1933,10 +2332,30 @@ class _MainAppShellState extends State<MainAppShell> {
         aiItemsSummary: _pendingItemsSummary,
         tags: tags,
       );
+      if (insertedTransactionId <= 0) throw StateError('交易寫入失敗');
+      transactionSaved = true;
+      if (claimedInvoiceNumber.isNotEmpty && invoiceClaimToken != null) {
+        await GameApiService.instance.finalizeInvoiceClaim(
+          invoiceNumber: claimedInvoiceNumber,
+          claimToken: invoiceClaimToken!,
+          transactionId: insertedTransactionId,
+        );
+      }
 
       // 3) 重新讀取交易資料（避免 UI/DB 不同步）
       await _loadData();
-      await _checkMonthlyBudgetAfterSave(isIncome: isIncome);
+      // ★ AI 自適應(閉環修正記憶)：把使用者最終選的分類寫回記憶。corrected = 有沒有改掉 AI 的建議。
+      //   fire-and-forget，即使失敗也不影響記帳。
+      final bool _memCorrected = (mainCat != (_pendingAiMainForMemory ?? mainCat)) ||
+          (subCat != (_pendingAiSubForMemory ?? subCat));
+      unawaited(_upsertCategoryMemory(
+        mainCategory: mainCat,
+        subCategory: subCat,
+        memoryKeyword: _pendingMemoryKeyword,
+        corrected: _memCorrected,
+      ));
+      // ★ 修卡頓：改非阻塞，記帳確認不再卡在教練檢查/彈窗的網路請求上（彈窗會自己在背景跳）
+      unawaited(_checkMonthlyBudgetAfterSave(isIncome: isIncome));
       await NotificationService.instance.syncFromPreferences(); // ★ 退役 DailyNotificationService，改用朋友版
       // ★ 合併自朋友版(B 遊戲資金)：掃描發票→地產資金；語音→寵物代幣；並記入任務進度
           {
@@ -1944,6 +2363,8 @@ class _MainAppShellState extends State<MainAppShell> {
           entryMethod: entry,
           amount: amount,
           isIncome: isIncome,
+          category: subCat,
+          occurredAt: _pendingOccurredAt ?? DateTime.now(),
           invoiceNumber: _pendingInvoiceNumber,
         );
         if (mounted && rewardMessage.isNotEmpty) {
@@ -1961,16 +2382,7 @@ class _MainAppShellState extends State<MainAppShell> {
       }
 
       // 5) 清掉暫存（避免下一筆沿用）
-      _pendingAiJson = null;
-      _pendingMerchant = null;
-      _pendingItemsSummary = null;
-      _pendingInvoiceNumber = null;
-      _pendingCurrencyCode = null; // ★ 合併自朋友版(C)
-      _pendingAiConfidence = null;
-      _pendingSuggestedSubCategory = null;
-      _pendingAiModel = null;
-      _pendingOccurredAt = null;
-      _pendingTags = [];
+      _clearPendingAiTransaction();
 
       // 6) Snackbar
       if (mounted) {
@@ -1983,6 +2395,14 @@ class _MainAppShellState extends State<MainAppShell> {
         );
       }
     } catch (e) {
+      if (!transactionSaved && claimedInvoiceNumber.isNotEmpty && invoiceClaimToken != null) {
+        try {
+          await GameApiService.instance.releaseInvoiceClaim(
+            invoiceNumber: claimedInvoiceNumber,
+            claimToken: invoiceClaimToken!,
+          );
+        } catch (_) {}
+      }
       print("資料庫操作錯誤: $e");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2025,6 +2445,14 @@ class _MainAppShellState extends State<MainAppShell> {
 
   // ★★★ 手動記帳 (手動一律 1 次解鎖，觸發通關密語！) ★★★
   void _addTransaction(Transaction tx) async {
+    // ★ AI 自適應(閉環修正記憶)：手動記帳＝使用者親自選的分類，用 note 當 keyword 慢慢累積(corrected=false)。
+    //   fire-and-forget，不影響記帳流程。
+    unawaited(_upsertCategoryMemory(
+      mainCategory: _mainCategoryForSub(tx.category),
+      subCategory: tx.category,
+      userInput: tx.note,
+      corrected: false,
+    ));
     await _refreshCurrentPetKey(); // ★ 新增：確保動畫與台詞用的是目前上場的寵物
     // ★★★ 修正：如果是今天第一筆，只去後端拿台詞，不要彈出確認視窗覆蓋分類！ ★★★
     if (_isFirstTransactionToday) {
@@ -2123,7 +2551,8 @@ class _MainAppShellState extends State<MainAppShell> {
       }
 
       await _loadData();
-      await _checkMonthlyBudgetAfterSave(isIncome: tx.type == TransactionType.income);
+      // ★ 修卡頓：改非阻塞
+      unawaited(_checkMonthlyBudgetAfterSave(isIncome: tx.type == TransactionType.income));
       await NotificationService.instance.syncFromPreferences(); // ★ 退役 DailyNotificationService，改用朋友版
       // ★ 合併自朋友版(B 遊戲資金)：手動記帳→寵物代幣；並記入任務進度
           {
@@ -2131,6 +2560,8 @@ class _MainAppShellState extends State<MainAppShell> {
           entryMethod: 'manual',
           amount: tx.amount,
           isIncome: tx.type == TransactionType.income,
+          category: tx.category,
+          occurredAt: tx.date,
         );
         if (mounted && rewardMessage.isNotEmpty) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -2180,7 +2611,8 @@ class _MainAppShellState extends State<MainAppShell> {
 
     // 2. 重新讀取資料庫，確保 UI 同步 (加入朋友的防呆)
     await _loadData();
-    await _checkMonthlyBudgetAfterSave(isIncome: tx.type == TransactionType.income);
+    // ★ 修卡頓：改非阻塞
+    unawaited(_checkMonthlyBudgetAfterSave(isIncome: tx.type == TransactionType.income));
     await NotificationService.instance.syncFromPreferences(); // ★ 退役 DailyNotificationService，改用朋友版
     // ★ 合併自朋友版(B 遊戲資金)：手動記帳→寵物代幣；並記入任務進度
         {
@@ -2188,6 +2620,8 @@ class _MainAppShellState extends State<MainAppShell> {
         entryMethod: 'manual',
         amount: tx.amount,
         isIncome: tx.type == TransactionType.income,
+        category: tx.category,
+        occurredAt: tx.date,
       );
       if (mounted && rewardMessage.isNotEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2241,6 +2675,13 @@ class _MainAppShellState extends State<MainAppShell> {
             // ★ 解開註解：呼叫更新並重新載入資料
             await DatabaseHelper.instance.updateTransaction(updatedTx);
             await _loadData();
+            // ★ AI 自適應(閉環修正記憶)：編輯是最強的修正訊號 → corrected=true，下次同 keyword 直接套。
+            unawaited(_upsertCategoryMemory(
+              mainCategory: _mainCategoryForSub(updatedTx.category),
+              subCategory: updatedTx.category,
+              userInput: updatedTx.note,
+              corrected: true,
+            ));
           },
         );
       },
@@ -2253,6 +2694,10 @@ class _MainAppShellState extends State<MainAppShell> {
       // ★ 合併自朋友版(C)：切回首頁時刷新旅遊/預設幣別顯示
       _refreshCurrencySettings();
       _homeKey.currentState?.reloadCurrencySettings();
+      _processRecurringThenLoad();
+    } else if (index == 1) {
+      // ★ 即時同步：切到設定頁時強制重載，讓預算/目標存款/已花/建議都是最新的，不用滑掉 App。
+      _settingsKey.currentState?.reload();
     }
     setState(() {
       _selectedIndex = index;
@@ -2457,7 +2902,7 @@ class _MainAppShellState extends State<MainAppShell> {
                   : const Center(
                 child: CircularProgressIndicator(),
               ),
-              const SettingPage(),
+              SettingPage(key: _settingsKey), // ★ 即時同步：掛 key 供切回時 reload
             ],
           ),
 

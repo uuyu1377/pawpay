@@ -5,6 +5,7 @@ import 'package:audioplayers/audioplayers.dart'; // 用於音效
 
 import '../main_app_shell.dart';
 import '../services/database_helper.dart'; // 確保路徑正確
+import '../services/game_api_service.dart';
 
 class OnboardingPage extends StatefulWidget {
   const OnboardingPage({super.key});
@@ -114,6 +115,13 @@ class _OnboardingPageState extends State<OnboardingPage> {
       await prefs.setBool('setting_monthly_budget_reminder', true);
       await prefs.setInt('setting_budget_threshold', 90);
       await prefs.setBool('setting_beginner_tips', true);
+
+      // 同步到後端，供「首次設定月預算」與「當月花費在預算內」任務判定。
+      try {
+        await GameApiService.instance.setMonthlyBudget(amount: budget.toDouble());
+      } catch (e) {
+        debugPrint('新手預算任務同步失敗：$e');
+      }
 
       if (!mounted) return;
 
