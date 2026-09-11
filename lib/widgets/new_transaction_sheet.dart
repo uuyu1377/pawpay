@@ -33,6 +33,12 @@ class _NewTransactionSheetState extends State<NewTransactionSheet> with TickerPr
   String _selectedCategory = '飲食';
   IconData _selectedIcon = Icons.fastfood_rounded;
   String _currencyCode = CurrencyService.defaultCode;
+  bool _isForeignCard = false;
+  double _foreignFeeRate = 0.015;
+  ExchangeRateQuote? _exchangeQuote;
+  bool _isLoadingExchangeRate = false;
+  String? _exchangeRateError;
+  bool _isSubmitting = false;
 
   // 2. 金額與輸入法變數
   double _totalAmount = 0;
@@ -66,6 +72,9 @@ class _NewTransactionSheetState extends State<NewTransactionSheet> with TickerPr
       _totalAmount = tx.originalAmount; // ★ 合併自朋友版(C)：編輯時顯示原始金額（原始幣別）
       _numpadString = _formatAmount(_totalAmount);
       _currencyCode = tx.currency.trim().isEmpty ? CurrencyService.defaultCode : tx.currency.trim();
+      _isForeignCard = tx.isForeignCard;
+      if (tx.foreignFeeRate > 0) _foreignFeeRate = tx.foreignFeeRate;
+      _refreshExchangeQuote();
     } else {
       _loadDefaultCurrency();
     }
@@ -76,6 +85,36 @@ class _NewTransactionSheetState extends State<NewTransactionSheet> with TickerPr
     final code = await CurrencyService.instance.getActiveCurrencyCode();
     if (!mounted) return;
     setState(() => _currencyCode = code);
+    await _refreshExchangeQuote();
+  }
+
+  Future<void> _refreshExchangeQuote() async {
+    if (_currencyCode == 'TWD') {
+      if (!mounted) return;
+      setState(() {
+        _exchangeQuote = null;
+        _exchangeRateError = null;
+        _isForeignCard = false;
+      });
+      return;
+    }
+
+    if (mounted) {
+      setState(() {
+        _isLoadingExchangeRate = true;
+        _exchangeRateError = null;
+      });
+    }
+    try {
+      final quote = await CurrencyService.instance.getTwdQuote(_currencyCode);
+      if (!mounted) return;
+      setState(() => _exchangeQuote = quote);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _exchangeRateError = e.toString().replaceFirst('Bad state: ', ''));
+    } finally {
+      if (mounted) setState(() => _isLoadingExchangeRate = false);
+    }
   }
 
   @override
@@ -298,6 +337,7 @@ class _NewTransactionSheetState extends State<NewTransactionSheet> with TickerPr
   }
 
   Future<void> _submitData() async {
+    if (_isSubmitting) return;
     final enteredNote = _noteController.text;
 
     if (_totalAmount <= 0) {
@@ -307,21 +347,126 @@ class _NewTransactionSheetState extends State<NewTransactionSheet> with TickerPr
       return;
     }
 
+    setState(() => _isSubmitting = true);
+    ExchangeRateQuote? quote = _exchangeQuote;
+    if (_currencyCode != 'TWD' && quote == null) {
+      try {
+        quote = await CurrencyService.instance.getTwdQuote(_currencyCode);
+      } catch (e) {
+        if (!mounted) return;
+        setState(() => _isSubmitting = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('目前無法取得匯率：${e.toString().replaceFirst('Bad state: ', '')}')),
+        );
+        return;
+      }
+    }
+
+    final exchangeRate = quote?.twdPerUnit ?? 1.0;
+    final baseAmountTwd = _totalAmount * exchangeRate;
+    final appliesCardFee = _selectedType == TransactionType.expense &&
+        _currencyCode != 'TWD' &&
+        _isForeignCard;
+    final feeAmountTwd = appliesCardFee ? baseAmountTwd * _foreignFeeRate : 0.0;
+
     final newTx = Transaction(
       // ★★★ 修改：如果是編輯模式，就保留原本的 ID；如果是新增，才產生新 ID ★★★
       id: widget.initialTransaction?.id ?? DateTime.now().toString(),
       note: enteredNote,
-      amount: _totalAmount,
+      amount: baseAmountTwd + feeAmountTwd,
       originalAmount: _totalAmount, // ★ 合併自朋友版(C)：原始輸入金額（原始幣別）
       date: _selectedDate,
       category: _selectedCategory,
       categoryIcon: _selectedIcon,
       type: _selectedType,
       currency: widget.initialTransaction?.currency ?? _currencyCode,
+      isForeignCard: appliesCardFee,
+      foreignFeeRate: appliesCardFee ? _foreignFeeRate : 0,
+      foreignFeeAmountTwd: feeAmountTwd,
+      exchangeRateToTwd: exchangeRate,
+      exchangeRateSource: quote?.source ?? 'TWD',
+      exchangeRateType: quote?.rateType ?? '基準幣別',
+      exchangeRateDate: quote?.rateDate,
     );
 
+    // ★ 修卡頓：先「觸發」存檔（含後續重新載入/獎勵/教練都在背景跑），不 await 它們完成就關閉表單。
+    //   原本 `await Future.sync(...)` 會等整條網路後續跑完才關表單，導致「確認記帳」一直轉圈、要手動滑掉。
     widget.onAddTransaction(newTx);
+    if (!mounted) return;
     Navigator.of(context).pop();
+  }
+
+  Widget _buildForeignCardSection() {
+    if (_currencyCode == 'TWD' || _selectedType != TransactionType.expense) {
+      return const SizedBox.shrink();
+    }
+
+    final baseTwd = _totalAmount * (_exchangeQuote?.twdPerUnit ?? 0);
+    final feeTwd = _isForeignCard ? baseTwd * _foreignFeeRate : 0.0;
+    final quote = _exchangeQuote;
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF4F8FF),
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: const Color(0xFFD7E6FF)),
+      ),
+      child: Column(
+        children: [
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            value: _isForeignCard,
+            onChanged: (value) => setState(() => _isForeignCard = value),
+            title: const Text('國外刷卡', style: TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: const Text('預估值會計入支出，實際金額仍依發卡行入帳為準'),
+            secondary: const Icon(Icons.credit_card_rounded, color: Color(0xFF3569B7)),
+          ),
+          if (_isForeignCard) ...[
+            const Divider(height: 18),
+            Row(
+              children: [
+                const Expanded(child: Text('手續費率（依發卡行調整）')),
+                DropdownButton<double>(
+                  value: _foreignFeeRate,
+                  underline: const SizedBox.shrink(),
+                  items: const [0.01, 0.015, 0.02, 0.025, 0.03]
+                      .map((rate) => DropdownMenuItem(
+                    value: rate,
+                    child: Text('${(rate * 100).toStringAsFixed(rate == 0.015 || rate == 0.025 ? 1 : 0)}%'),
+                  ))
+                      .toList(),
+                  onChanged: (rate) {
+                    if (rate != null) setState(() => _foreignFeeRate = rate);
+                  },
+                ),
+              ],
+            ),
+          ],
+          const SizedBox(height: 4),
+          if (_isLoadingExchangeRate)
+            const LinearProgressIndicator(minHeight: 2)
+          else if (_exchangeRateError != null)
+            Row(
+              children: [
+                Expanded(child: Text(_exchangeRateError!, style: const TextStyle(color: Colors.red, fontSize: 12))),
+                TextButton(onPressed: _refreshExchangeQuote, child: const Text('重試')),
+              ],
+            )
+          else if (quote != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  '1 $_currencyCode ≈ NT\$${quote.twdPerUnit.toStringAsFixed(4)}\n'
+                      '${quote.source}・${quote.rateType}・${quote.rateDate}${quote.isStale ? '（快取）' : ''}\n'
+                      '${_isForeignCard ? '預估手續費 NT\$${feeTwd.toStringAsFixed(0)}，入帳約 NT\$${(baseTwd + feeTwd).toStringAsFixed(0)}' : '換算約 NT\$${baseTwd.toStringAsFixed(0)}'}',
+                  style: TextStyle(fontSize: 12, height: 1.5, color: Colors.blueGrey[700]),
+                ),
+              ),
+        ],
+      ),
+    );
   }
 
   InputDecoration _buildInputDecoration({required String hint, IconData? icon}) {
@@ -477,6 +622,10 @@ class _NewTransactionSheetState extends State<NewTransactionSheet> with TickerPr
                 ),
                 const SizedBox(height: 12),
 
+                _buildForeignCardSection(),
+                if (_currencyCode != 'TWD' && _selectedType == TransactionType.expense)
+                  const SizedBox(height: 12),
+
                 // 4. 工具列
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 4.0),
@@ -541,7 +690,7 @@ class _NewTransactionSheetState extends State<NewTransactionSheet> with TickerPr
 
                 // 6. 確認按鈕
                 GestureDetector(
-                  onTap: _submitData,
+                  onTap: _isSubmitting ? null : _submitData,
                   child: Container(
                     width: double.infinity,
                     height: 50,
@@ -557,7 +706,14 @@ class _NewTransactionSheetState extends State<NewTransactionSheet> with TickerPr
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.check_circle_outline, color: Colors.white, size: 24),
+                        if (_isSubmitting)
+                          const SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        else
+                          const Icon(Icons.check_circle_outline, color: Colors.white, size: 24),
                         const SizedBox(width: 8),
                         // ★★★ 修改：根據是否為編輯模式切換文字 ★★★
                         Text(

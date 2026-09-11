@@ -118,7 +118,7 @@ class _MissionPageState extends State<MissionPage> {
               borderRadius: BorderRadius.circular(18),
             ),
             child: const Text(
-              '完成任務後可領取扭蛋幣；連續登入的每日獎勵會自動發放。',
+              '完成記帳與預算任務後可領取扭蛋幣；只有登入不會增加任務進度。',
               style: TextStyle(fontWeight: FontWeight.w600, height: 1.4),
             ),
           );

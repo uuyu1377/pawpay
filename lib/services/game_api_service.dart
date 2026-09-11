@@ -151,7 +151,7 @@ class GameApiService {
     return _asMap(res.data);
   }
 
-  Future<Map<String, dynamic>> gachaDraw({int userId = 1, int cost = 100}) async {
+  Future<Map<String, dynamic>> gachaDraw({int userId = 1, int cost = 10}) async {
     final res = await _dio.post('$baseUrl/game/gacha/draw', data: {'user_id': userId, 'cost': cost});
     return _asMap(res.data);
   }
@@ -287,6 +287,64 @@ class GameApiService {
     return data['already_rewarded'] == true;
   }
 
+  /// 在真正寫入交易前先向全域發票表取得短效占用，避免不同使用者同時存入同一張發票。
+  Future<Map<String, dynamic>> claimInvoice({
+    Object? userId,
+    required String invoiceNumber,
+  }) async {
+    final uid = await _resolveUserId(userId);
+    final options = (await _authOptions()).copyWith(
+      validateStatus: (status) => status != null && status < 500,
+    );
+    final res = await _dio.post(
+      '$aiBaseUrl/api/invoices/claim',
+      data: {'user_id': uid, 'invoice_number': invoiceNumber},
+      options: options,
+    );
+    final data = _asMap(res.data);
+    if (res.statusCode == 409) return {...data, 'status': 'duplicate'};
+    if ((res.statusCode ?? 500) >= 400) {
+      throw StateError(data['message']?.toString() ?? '無法驗證發票是否重複');
+    }
+    return data;
+  }
+
+  Future<void> finalizeInvoiceClaim({
+    Object? userId,
+    required String invoiceNumber,
+    required String claimToken,
+    required int transactionId,
+  }) async {
+    final uid = await _resolveUserId(userId);
+    await _dio.post(
+      '$aiBaseUrl/api/invoices/finalize',
+      data: {
+        'user_id': uid,
+        'invoice_number': invoiceNumber,
+        'claim_token': claimToken,
+        'transaction_id': transactionId,
+      },
+      options: await _authOptions(),
+    );
+  }
+
+  Future<void> releaseInvoiceClaim({
+    Object? userId,
+    required String invoiceNumber,
+    required String claimToken,
+  }) async {
+    final uid = await _resolveUserId(userId);
+    await _dio.post(
+      '$aiBaseUrl/api/invoices/release',
+      data: {
+        'user_id': uid,
+        'invoice_number': invoiceNumber,
+        'claim_token': claimToken,
+      },
+      options: await _authOptions(),
+    );
+  }
+
   Future<Map<String, dynamic>> addPetTokens({
     Object? userId,
     required int amount,
@@ -333,6 +391,39 @@ class GameApiService {
     return _asMap(res.data);
   }
 
+  Future<Map<String, dynamic>> fetchPetChoiceState({Object? userId}) async {
+    final uid = await _resolveUserId(userId);
+    final res = await _dio.get(
+      '$aiBaseUrl/api/game/pet-choice',
+      queryParameters: {'user_id': uid},
+      options: await _authOptions(),
+    );
+    return _asMap(res.data);
+  }
+
+  Future<Map<String, dynamic>> purchasePetChoiceTicket({Object? userId}) async {
+    final uid = await _resolveUserId(userId);
+    final res = await _dio.post(
+      '$aiBaseUrl/api/game/pet-choice/purchase',
+      data: {'user_id': uid, 'package_id': 'pet_ticket_200'},
+      options: await _authOptions(),
+    );
+    return _asMap(res.data);
+  }
+
+  Future<Map<String, dynamic>> redeemPetChoiceTicket({
+    Object? userId,
+    required String speciesKey,
+  }) async {
+    final uid = await _resolveUserId(userId);
+    final res = await _dio.post(
+      '$aiBaseUrl/api/game/pet-choice/redeem',
+      data: {'user_id': uid, 'species_key': speciesKey},
+      options: await _authOptions(),
+    );
+    return _asMap(res.data);
+  }
+
   Future<List<Map<String, dynamic>>> fetchRewardLogs({
     Object? userId,
     int limit = 50,
@@ -347,22 +438,54 @@ class GameApiService {
     return _asListOfMaps(data['logs']);
   }
 
-  Future<void> recordMissionEvent({
+  Future<Map<String, dynamic>> recordMissionEvent({
     Object? userId,
     required String source,
     required bool isInvoice,
+    String eventType = 'expense_recorded',
+    double? amountTwd,
+    String? category,
+    DateTime? occurredAt,
+    String? uniqueHint,
   }) async {
     final uid = await _resolveUserId(userId);
-    await _dio.post(
+    final res = await _dio.post(
       '$aiBaseUrl/api/game/mission-event',
       data: {
         'user_id': uid,
-        'event_type': 'expense_recorded',
+        'event_type': eventType,
         'source': source,
         'is_invoice': isInvoice,
+        if (amountTwd != null) 'amount_twd': amountTwd,
+        if (category != null) 'category': category,
+        if (occurredAt != null) 'occurred_at': occurredAt.toIso8601String(),
+        if (uniqueHint != null && uniqueHint.isNotEmpty) 'unique_hint': uniqueHint,
       },
       options: await _authOptions(),
     );
+    return _asMap(res.data);
+  }
+
+  Future<Map<String, dynamic>> recordReportView({Object? userId}) {
+    return recordMissionEvent(
+      userId: userId,
+      source: 'weekly_report',
+      isInvoice: false,
+      eventType: 'report_viewed',
+    );
+  }
+
+  Future<Map<String, dynamic>> setMonthlyBudget({
+    Object? userId,
+    required double amount,
+  }) async {
+    final uid = await _resolveUserId(userId);
+    final res = await _dio.post(
+      '$aiBaseUrl/api/game/monthly-budget',
+      data: {'user_id': uid, 'amount': amount},
+      options: await _authOptions(),
+    );
+    return _asMap(res.data);
   }
 
   Future<List<Map<String, dynamic>>> fetchMissions({Object? userId}) async {

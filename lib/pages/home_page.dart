@@ -10,7 +10,6 @@ import 'package:user_interface/services/currency_service.dart';
 import 'package:user_interface/services/category_budget_service.dart';
 import 'package:user_interface/widgets/city_expense_carousel.dart';
 import 'package:user_interface/widgets/iso_city_view.dart';
-
 // 引入語音頁面
 import 'package:user_interface/pages/voice_page.dart';
 // AI 時事公告
@@ -18,7 +17,10 @@ import 'package:user_interface/widgets/ai_news_banner.dart';
 //每週生成分享圖
 import 'package:user_interface/pages/weekly_share_page.dart';
 
+
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:user_interface/services/current_pet_manager.dart';
+
 class HomePage extends StatefulWidget {
   final List<Transaction> transactions;
   // 給外部 (MainAppShell) 呼叫用，通知它要處理 AI 分析
@@ -49,12 +51,11 @@ class HomePageState extends State<HomePage> {
   String? _aiComment;
   bool _showAiComment = false;
   Timer? _timer;
-  String _currentPetKey = 'dog';
-
-  late Future<List<Map<String, dynamic>>> _quickExpenseFuture;
 
   // ★★★ 新增：當前「上戰場」寵物的 emoji，會跟著 current_pet_key 改變 ★★★
-  // 預設 🐶 是為了對應「蛋階段（尚未選寵物）」時後端預設用狗狗語氣講話，讓臉跟語氣相同
+  // 預設 🐶 是為了對應「蛋階段（尚未選寵物）」時後端預設用狗狗語氣講話，讓臉跟語氣一致
+  String _currentPetKey = 'dog';
+
   // ★★★ 來自合併：動態分類相關變數 ★★★
   late Future<List<Map<String, dynamic>>> _quickExpenseFuture;
 
@@ -110,6 +111,7 @@ class HomePageState extends State<HomePage> {
     'bee': 'assets/pets/bee.png',
     'giraffe': 'assets/pets/giraffe.png',
   };
+
   // ★★★ 新增：從 SharedPreferences 讀取當前上場寵物，換成對應 emoji ★★★
   // 查不到 (蛋階段 / 尚未選寵物) 就用預設狗狗 emoji，與後端預設語氣一致
   Future<void> _loadCurrentPetImage() async {
@@ -125,7 +127,7 @@ class HomePageState extends State<HomePage> {
         _currentPetKey = petKey;
       });
     } catch (_) {
-      // 讀取失敗時維持預設 dog
+      // 讀取失敗就使用預設 dog
     }
   }
 
@@ -285,21 +287,26 @@ class HomePageState extends State<HomePage> {
 
   // 給外部呼叫的方法，用來觸發 AI 短評動畫 (保留你的邏輯)
   void triggerAiComment(String comment) {
-    _loadCurrentPetImage(); // ★★★ 新增：跳短評前先重讀，確保臉是「當前上場寵物」(中途換寵物也會即時更新) ★★★
+    // ★ 每次 AI 對話出現前重新讀目前寵物
+    _loadCurrentPetImage();
+
     setState(() {
       _aiComment = comment;
       _showAiComment = true;
     });
 
-    // 8秒後自動消失
     _timer?.cancel();
-    _timer = Timer(const Duration(seconds: 8), () {
-      if (mounted) {
-        setState(() {
-          _showAiComment = false;
-        });
-      }
-    });
+
+    _timer = Timer(
+      const Duration(seconds: 8),
+          () {
+        if (mounted) {
+          setState(() {
+            _showAiComment = false;
+          });
+        }
+      },
+    );
   }
 
   // 處理語音按鈕點擊 (保留你的邏輯)
@@ -502,24 +509,37 @@ class HomePageState extends State<HomePage> {
               // (B) 搜尋/動物按鈕
               FloatingActionButton(
                 heroTag: "search_btn",
+
                 onPressed: () {
                   if (_showAiComment) {
-                    setState(() => _showAiComment = false);
+                    setState(() {
+                      _showAiComment = false;
+                    });
                   } else {
                     showSearch(
                       context: context,
-                      delegate: TransactionSearchDelegate(widget.transactions, defaultCurrencyCode: _currencyCode),
+                      delegate: TransactionSearchDelegate(
+                        widget.transactions,
+                        defaultCurrencyCode: _currencyCode,
+                      ),
                     );
                   }
                 },
-                backgroundColor: _showAiComment ? const Color(0xFFFFF59D) : Colors.blueAccent,
+
+                backgroundColor: _showAiComment
+                    ? const Color(0xFFFFF59D)
+                    : Colors.blueAccent,
+
                 child: _showAiComment
                     ? Center(
                   child: Image.asset(
-                    _petImageMap[_currentPetKey] ??
-                        'assets/pets/dog.png',
+                    _petImageMap[_currentPetKey]
+                        ?? 'assets/pets/dog_action.png',
+
+                    // ★ 跟原本 fontSize: 32 的 emoji 接近
                     width: 35,
                     height: 35,
+
                     fit: BoxFit.contain,
                   ),
                 )
@@ -677,8 +697,6 @@ class HomePageState extends State<HomePage> {
             .toList()
           ..sort((a, b) => b.amount.compareTo(a.amount));
 
-        // 舊版（正面視角的大樓輪播）：留著方便隨時切回來
-        // return CityExpenseCarousel(expensesFuture: Future.value(expenses));
         return IsoCityView(expenses: expenses);
       },
     );
@@ -892,6 +910,10 @@ class HomePageState extends State<HomePage> {
 
   // ★★★ 修改：將傳入的參數改為 Transaction 物件，並加上 Dismissible 滑動功能 ★★★
   Widget _buildTransactionItem(Transaction tx, String amountString, Color amountColor) {
+    final feeText = tx.isForeignCard
+        ? '💳 國外刷卡手續費約 NT\$${tx.foreignFeeAmountTwd.toStringAsFixed(0)}（${(tx.foreignFeeRate * 100).toStringAsFixed(1)}%）'
+        : '';
+    final displayNote = [if (tx.note.trim().isNotEmpty) tx.note.trim(), if (feeText.isNotEmpty) feeText].join('\n');
     return Dismissible(
       // 必須給予唯一的 Key，Flutter 才能追蹤哪一個物件被滑動了
       key: ValueKey('tx_${tx.id}'),
@@ -1028,7 +1050,7 @@ class HomePageState extends State<HomePage> {
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Text(
-                      tx.note.isEmpty ? '-' : tx.note,
+                      displayNote.isEmpty ? '-' : displayNote,
                       style: TextStyle(fontSize: 16, color: Colors.grey[800]),
                     ),
                   ),
@@ -1117,7 +1139,11 @@ class TransactionSearchDelegate extends SearchDelegate {
               child: Icon(tx.categoryIcon, color: Colors.blue),
             ),
             title: Text(tx.category, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text("$dateStr\n${tx.note}", maxLines: 2, overflow: TextOverflow.ellipsis),
+            subtitle: Text(
+              '$dateStr\n${tx.note}${tx.isForeignCard ? '${tx.note.isEmpty ? '' : '・'}刷卡費約 NT\$${tx.foreignFeeAmountTwd.toStringAsFixed(0)}' : ''}',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
             isThreeLine: true,
             trailing: Text(
               '${tx.type == TransactionType.income ? '+' : '-'}${CurrencyService.formatAmount(tx.originalAmount, tx.currency)}', // ★ 合併自朋友版(C)：每筆顯示原始幣別
