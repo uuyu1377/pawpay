@@ -43,3 +43,12 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# 環境變數與金鑰（絕對不要上傳）
+.env
+*.env
+
+# Python / Flask
+__pycache__/
+venv/
+.venv/
