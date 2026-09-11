@@ -9,13 +9,14 @@ import 'package:user_interface/services/database_helper.dart';
 import 'package:user_interface/services/currency_service.dart';
 import 'package:user_interface/services/category_budget_service.dart';
 import 'package:user_interface/widgets/city_expense_carousel.dart';
-
+import 'package:user_interface/widgets/iso_city_view.dart';
 // 引入語音頁面
 import 'package:user_interface/pages/voice_page.dart';
 // AI 時事公告
 import 'package:user_interface/widgets/ai_news_banner.dart';
 //每週生成分享圖
 import 'package:user_interface/pages/weekly_share_page.dart';
+
 
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:user_interface/services/current_pet_manager.dart';
@@ -696,7 +697,7 @@ class HomePageState extends State<HomePage> {
             .toList()
           ..sort((a, b) => b.amount.compareTo(a.amount));
 
-        return CityExpenseCarousel(expensesFuture: Future.value(expenses));
+        return IsoCityView(expenses: expenses);
       },
     );
   }
