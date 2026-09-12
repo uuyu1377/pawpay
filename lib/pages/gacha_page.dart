@@ -331,7 +331,7 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text(isNone ? "可惜！" : "🎉 扭蛋結果 🎉", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.brown)),
+                Text(isNone ? "可惜！" : "扭蛋結果", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.brown)),
                 const SizedBox(height: 25),
                 Container(
                   width: 110, height: 110,

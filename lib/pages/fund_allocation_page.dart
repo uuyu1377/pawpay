@@ -165,7 +165,7 @@ class _FundAllocationPageState extends State<FundAllocationPage> with SingleTick
     final suggested = Map<String, int>.from(_basePercents(_identity));
     final ratio = await _storingRatioFromHistory();
     if (ratio == null) {
-      _historyNote = '依你的身分建議的比例（記帳久一點會再依你的存錢習慣微調）。';
+      _historyNote = '記帳久一點，AI 會依你的存錢習慣微調比例。';
     } else if (ratio < 0.1) {
       final inv = suggested['投資理財'] ?? 0;
       final cut = inv >= 10 ? 10 : inv;
@@ -275,7 +275,7 @@ class _FundAllocationPageState extends State<FundAllocationPage> with SingleTick
     if (!mounted) return;
     final over = _totalPct > 100;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(over ? '總比例超過 100%，請調整後再存。' : '資金分配已儲存 ✅')),
+      SnackBar(content: Text(over ? '總比例超過 100%，請調整後再存。' : '資金分配已儲存')),
     );
   }
 
@@ -345,7 +345,6 @@ class _FundAllocationPageState extends State<FundAllocationPage> with SingleTick
               children: [
                 Row(
                   children: [
-                    const Text('🐾 ', style: TextStyle(fontSize: 20)),
                     const Expanded(
                       child: Text('依你的身分與存錢習慣，幫你想了一組分配比例。',
                           style: TextStyle(color: Color(0xFF5E35B1), fontSize: 13, height: 1.4)),

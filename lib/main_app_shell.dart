@@ -1662,7 +1662,7 @@ class _MainAppShellState extends State<MainAppShell> {
     _pendingFromMemory = data['from_memory'] == true;
     if (_pendingFromMemory && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('🧠 已依你之前的習慣自動分類'), duration: Duration(seconds: 2)),
+        const SnackBar(content: Text('已依你之前的習慣自動分類'), duration: Duration(seconds: 2)),
       );
     }
 
@@ -1795,16 +1795,13 @@ class _MainAppShellState extends State<MainAppShell> {
 
     List<dynamic> tagsList = data['tags'] ?? [];
     String tagsStr = tagsList.join(" ");
-    if (tagsStr.isNotEmpty) {
-      tagsStr = "🔍 $tagsStr";
-    }
 
     String displayNote = "";
     if (merchant.isNotEmpty && !merchant.contains("未知")) {
       displayNote += "【$merchant】\n";
     }
     if (itemsSummary.isNotEmpty) {
-      displayNote += "🛒 $itemsSummary\n";
+      displayNote += "$itemsSummary\n";
     }
     if (tagsStr.isNotEmpty) {
       displayNote += "$tagsStr\n";
@@ -1815,8 +1812,8 @@ class _MainAppShellState extends State<MainAppShell> {
     final String invoiceDateText = _resolveInvoiceDateText(date, _pendingRawInput);
     if (invoiceNum.isNotEmpty) {
       displayNote += invoiceDateText.isNotEmpty
-          ? "🧾 $invoiceNum ($invoiceDateText)"
-          : "🧾 $invoiceNum";
+          ? "$invoiceNum ($invoiceDateText)"
+          : "$invoiceNum";
     }
 
     // ★★★ 核心修改：判斷是不是收入，呼叫不同的彈窗 ★★★
@@ -1905,7 +1902,7 @@ class _MainAppShellState extends State<MainAppShell> {
               }
 
               return AlertDialog(
-                title: const Text("✨ AI 分析結果確認"),
+                title: const Text("AI 分析結果確認"),
                 content: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -2073,7 +2070,7 @@ class _MainAppShellState extends State<MainAppShell> {
 
               return AlertDialog(
                 // 專屬綠色標題
-                title: const Text("💰 收入進帳確認", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
+                title: const Text("收入進帳確認", style: TextStyle(color: Colors.green, fontWeight: FontWeight.bold)),
                 content: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -2266,7 +2263,7 @@ class _MainAppShellState extends State<MainAppShell> {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('⚠️ 發票 $dupInvoiceNumber 已經記過帳了，這次沒有重複新增'),
+                content: Text('發票 $dupInvoiceNumber 已經記過帳了，這次沒有重複新增'),
                 backgroundColor: Colors.orange,
                 duration: const Duration(milliseconds: 2500),
               ),
@@ -2388,7 +2385,7 @@ class _MainAppShellState extends State<MainAppShell> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(isIncome ? '✅ 收入已存入' : '✅ 記帳完成'),
+            content: Text(isIncome ? '收入已存入' : '記帳完成'),
             backgroundColor: Colors.green,
             duration: const Duration(milliseconds: 1500),
           ),
@@ -2407,7 +2404,7 @@ class _MainAppShellState extends State<MainAppShell> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ 記帳失敗：$e'),
+            content: Text('記帳失敗：$e'),
             backgroundColor: Colors.red,
           ),
         );

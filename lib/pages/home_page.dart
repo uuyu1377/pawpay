@@ -920,7 +920,7 @@ class HomePageState extends State<HomePage> {
   // ★★★ 修改：將傳入的參數改為 Transaction 物件，並加上 Dismissible 滑動功能 ★★★
   Widget _buildTransactionItem(Transaction tx, String amountString, Color amountColor) {
     final feeText = tx.isForeignCard
-        ? '💳 國外刷卡手續費約 NT\$${tx.foreignFeeAmountTwd.toStringAsFixed(0)}（${(tx.foreignFeeRate * 100).toStringAsFixed(1)}%）'
+        ? '國外刷卡手續費約 NT\$${tx.foreignFeeAmountTwd.toStringAsFixed(0)}（${(tx.foreignFeeRate * 100).toStringAsFixed(1)}%）'
         : '';
     final displayNote = [if (tx.note.trim().isNotEmpty) tx.note.trim(), if (feeText.isNotEmpty) feeText].join('\n');
     return Dismissible(
@@ -1128,7 +1128,7 @@ class TransactionSearchDelegate extends SearchDelegate {
     results.sort((a, b) => b.date.compareTo(a.date));
 
     if (results.isEmpty) {
-      return const Center(child: Text('找不到相關紀錄 🐢'));
+      return const Center(child: Text('找不到相關紀錄'));
     }
 
     return ListView.builder(

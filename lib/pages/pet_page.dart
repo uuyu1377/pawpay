@@ -465,7 +465,19 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
           const SizedBox(width: 8),
           Expanded(
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text(petType['emoji'] as String, style: const TextStyle(fontSize: 20)),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(6),
+                child: Image.asset(
+                  petType['idleImage'] as String,
+                  width: 22,
+                  height: 22,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) => Text(
+                    petType['emoji'] as String,
+                    style: const TextStyle(fontSize: 20),
+                  ),
+                ),
+              ),
               const SizedBox(width: 6),
               Text(
                 displayName,
@@ -622,10 +634,10 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
         decoration: BoxDecoration(
           gradient: isUnlocked
               ? const LinearGradient(
-                  colors: _sharedPetBackground,
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
+            colors: _sharedPetBackground,
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+          )
               : LinearGradient(colors: [Colors.grey[100]!, Colors.grey[200]!]),
           borderRadius: BorderRadius.circular(32),
           border: isCenter
@@ -660,28 +672,28 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
                   },
                   child: isUnlocked
                       ? Opacity(
-                          opacity: _feedingPetKey == key ? 0.0 : 1.0,
-                          child: Image.asset(
-                            idleImage,
-                            width: 230,
-                            height: 230,
-                            fit: BoxFit.contain,
-                          ),
-                        )
+                    opacity: _feedingPetKey == key ? 0.0 : 1.0,
+                    child: Image.asset(
+                      idleImage,
+                      width: 320,
+                      height: 320,
+                      fit: BoxFit.contain,
+                    ),
+                  )
                       : ColorFiltered(
-                          colorFilter: const ColorFilter.matrix([
-                            0.2126, 0.7152, 0.0722, 0, 0,
-                            0.2126, 0.7152, 0.0722, 0, 0,
-                            0.2126, 0.7152, 0.0722, 0, 0,
-                            0,      0,      0,      0.45, 0,
-                          ]),
-                          child: Image.asset(
-                            idleImage,
-                            width: 230,
-                            height: 230,
-                            fit: BoxFit.contain,
-                          ),
-                        ),
+                    colorFilter: const ColorFilter.matrix([
+                      0.2126, 0.7152, 0.0722, 0, 0,
+                      0.2126, 0.7152, 0.0722, 0, 0,
+                      0.2126, 0.7152, 0.0722, 0, 0,
+                      0,      0,      0,      0.45, 0,
+                    ]),
+                    child: Image.asset(
+                      idleImage,
+                      width: 320,
+                      height: 320,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -706,8 +718,8 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
                       },
                       child: Image.asset(
                         feedAnimation,
-                        width: 260,
-                        height: 260,
+                        width: 320,
+                        height: 320,
                         fit: BoxFit.contain,
                         gaplessPlayback: false,
                       ),

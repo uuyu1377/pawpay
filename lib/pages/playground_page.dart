@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:lottie/lottie.dart';
 import 'package:sensors_plus/sensors_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // ★ 新增：讀取使用者實際選的寵物 key，修復大富翁沒圖片的問題
 
 import 'add_friend_page.dart';
 import 'friend_page.dart';
@@ -31,6 +32,29 @@ class SelectedPet {
     SelectedPet.color = color;
   }
 }
+
+// ★★★ 新增：寵物 key 對應的圖片路徑，跟 pet_page.dart / weekly_share_page.dart 用同一批圖檔 ★★★
+// 用途：如果使用者直接從底部導覽列點「大富翁」進來（沒有先經過選寵物頁面），
+// SelectedPet.animationPath 會是 null，導致玩家棋子變成沒有圖片的空白圓圈。
+// 有這張對照表，才能在遊戲開始後補撈使用者實際選的寵物圖片。
+const Map<String, String> _kPetImageMap = {
+  'dog': 'assets/pets/dog_action.png',
+  'cat': 'assets/pets/cat_action.png',
+  'parrot': 'assets/pets/parrot_action.png',
+  'sloth': 'assets/pets/sloth_action.png',
+  'fox': 'assets/pets/fox_action.png',
+  'cute_dog': 'assets/pets/shiba_action.png',
+  'pomeranian': 'assets/pets/pomeranian_action.png',
+  'norm_dog': 'assets/pets/calm_dog_action.png',
+  'wagging_dog': 'assets/pets/clingy_dog_action.png',
+  'lovely_cat': 'assets/pets/love_cat_action.png',
+  'blue_cat': 'assets/pets/work_cat_action.png',
+  'rocket_cat': 'assets/pets/rocket_cat_action.png',
+  'loader_cat': 'assets/pets/waiting_cat_action.png',
+  'bear': 'assets/pets/bear_action.png',
+  'bee': 'assets/pets/bee_action.png',
+  'giraffe': 'assets/pets/giraffe_action.png',
+};
 
 // --- 核心資料模型 ---
 enum BlockType { land, start, jail, chance, tax, goJail }
@@ -292,12 +316,42 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   void initState() {
     super.initState();
     _initPlayers();
+    _ensureSelectedPetImageLoaded(); // ★ 新增：修補「沒先選過寵物就直接進大富翁」時圖片是空白的問題
     _initShakeSensor();
     final autoMap = widget.initialMapTheme ?? SelectedPet.lastMapTheme;
     if (autoMap != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _startGame(autoMap);
       });
+    }
+  }
+
+  // ★★★ 新增：如果玩家 0（使用者）目前沒有寵物圖片，去讀取使用者實際選的寵物 key 補回來 ★★★
+  Future<void> _ensureSelectedPetImageLoaded() async {
+    if (_players.isEmpty || _players[0].animationPath != null) return; // 已經有圖片了，不用處理
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = prefs.getString('current_pet_key');
+      final imagePath = _kPetImageMap[key];
+      if (imagePath == null || !mounted) return;
+
+      final old = _players[0];
+      setState(() {
+        _players[0] = Player(
+          id: old.id,
+          name: old.name,
+          color: old.color,
+          icon: old.icon,
+          animationPath: imagePath,
+          emoji: old.emoji,
+          money: old.money,
+          pathStep: old.pathStep,
+          isBankrupt: old.isBankrupt,
+          jailTurns: old.jailTurns,
+        );
+      });
+    } catch (_) {
+      // 讀取失敗就維持原本畫面，不影響遊戲功能
     }
   }
 
@@ -517,7 +571,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         p.isBankrupt = true;
         // 若玩家 0（使用者）破產 → 遊戲直接結束
         if (p.id == 0) {
-          setState(() { _gameOver = true; _gameLog = "你的寵物破產了！本月冒險結束 😢"; });
+          setState(() { _gameOver = true; _gameLog = "你的寵物破產了！本月冒險結束"; });
           return;
         }
         _addLog("${p.name} 已破產，退出遊戲！");
@@ -527,7 +581,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // 若存活玩家只剩自己，也算結束
     final alive = _players.where((p) => !p.isBankrupt).toList();
     if (alive.length == 1) {
-      setState(() { _gameOver = true; _gameLog = "${alive.first.name} 獲得最終勝利！🏆 本月冒險結束"; });
+      setState(() { _gameOver = true; _gameLog = "${alive.first.name} 獲得最終勝利！本月冒險結束"; });
       return;
     }
 
@@ -1072,7 +1126,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                     elevation: canRoll ? 4 : 0,
                   ),
                   child: Text(
-                    _isRolling ? "🎲 擲中..." : (_gameOver ? "遊戲結束" : (_currentPlayerIdx == 0 ? "出發！🎲" : "電腦回合")),
+                    _isRolling ? "擲中..." : (_gameOver ? "遊戲結束" : (_currentPlayerIdx == 0 ? "出發！" : "電腦回合")),
                     style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
                   ),
                 ),

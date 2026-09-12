@@ -386,16 +386,16 @@ class SettingPageState extends State<SettingPage> {
         var jsonResponse = jsonDecode(responseBody);
         // 方法 A：用 \n
         _showResultDialog(
-          '✅ 匯入成功',
+          '匯入成功',
           '${jsonResponse['message'] ?? "匯入完成"}\n獲得資金：${jsonResponse['earned'] ?? 0} 元',
         );
       } else {
-        _showResultDialog('❌ 伺服器錯誤 (${response.statusCode})', responseBody);
+        _showResultDialog('伺服器錯誤 (${response.statusCode})', responseBody);
       }
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop();
-      _showResultDialog('⚠️ 連線失敗', '$e請檢查 Python 後端是否啟動，以及手機是否連到同一個後端 IP。');
+      _showResultDialog('連線失敗', '$e請檢查 Python 後端是否啟動，以及手機是否連到同一個後端 IP。');
     }
   }
 
@@ -421,7 +421,7 @@ class SettingPageState extends State<SettingPage> {
     } catch (e) {
       if (!mounted) return;
       if (loadingOpen) Navigator.of(context).pop();
-      _showResultDialog('❌ 匯出失敗', '$e\n\n如果你目前沒有啟動後端，交易資料可能無法從 MySQL API 讀取。');
+      _showResultDialog('匯出失敗', '$e\n\n如果你目前沒有啟動後端，交易資料可能無法從 MySQL API 讀取。');
     }
   }
 
@@ -1250,7 +1250,7 @@ class SettingPageState extends State<SettingPage> {
         return AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           title: const Text(
-            '⚠️ 刪除所有資料',
+            '刪除所有資料',
             style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold),
           ),
           content: const Text(
@@ -1313,13 +1313,13 @@ class SettingPageState extends State<SettingPage> {
       Navigator.of(context).pop(); // 關閉 loading
 
       _showResultDialog(
-        '✅ 資料已徹底刪除',
+        '資料已徹底刪除',
         '你在系統中的所有記帳紀錄與資金已全部銷毀，符合隱私權規範。\n\n請重新啟動 App 建立新的設定與角色。',
       );
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop(); // 關閉 loading
-      _showResultDialog('❌ 刪除失敗', '$e\n\n請檢查網路連線狀態。');
+      _showResultDialog('刪除失敗', '$e\n\n請檢查網路連線狀態。');
     }
   }
 
@@ -1643,7 +1643,7 @@ class SettingPageState extends State<SettingPage> {
                 _buildTile(
                   icon: Icons.pie_chart_rounded,
                   title: '資金分配',
-                  subtitle: '收入扣掉想存/想花後，剩下的錢怎麼分（AI 依身分+歷史給建議）',
+                  subtitle: 'AI 幫你分配收入怎麼花',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const FundAllocationPage()),
                   ),
@@ -1654,7 +1654,7 @@ class SettingPageState extends State<SettingPage> {
                 _buildTile(
                   icon: Icons.psychology_rounded,
                   title: 'AI 學到的分類規則',
-                  subtitle: '看 AI 記住了哪些「店家/關鍵字 → 分類」，越用越準',
+                  subtitle: '查看 AI 記住的分類習慣',
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(builder: (_) => const CategoryMemoryPage()),
                   ),
@@ -1791,7 +1791,6 @@ class SettingPageState extends State<SettingPage> {
                 _buildTile(
                   icon: Icons.feedback_rounded,
                   title: '問題回報 / 意見回饋',
-                  subtitle: '先暫存在本機，之後可再接 Email 或表單',
                   onTap: _showFeedbackDialog,
                   iconBg: const Color(0xFFEEF2FF),
                   iconColor: const Color(0xFF4F46E5),
@@ -1821,18 +1820,6 @@ class SettingPageState extends State<SettingPage> {
               ]),
               // ★★★ ============================ ★★★
 
-              const SizedBox(height: 24),
-              const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 20),
-                child: Text(
-                  '提醒：每日提醒與月底預算提醒已接到 App 內檢查；App 鎖已接到主程式入口，啟動 App 與從背景回到前景時會要求輸入密碼。若要手機系統推播，之後需再加入通知套件。',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    height: 1.5,
-                    color: Colors.black54,
-                  ),
-                ),
-              ),
               const SizedBox(height: 28),
             ],
           ),

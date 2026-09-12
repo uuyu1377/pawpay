@@ -960,7 +960,7 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    '哪一天錢包最有感？線條都幫你畫出來了 ✨',
+                    '哪一天錢包最有感？線條都幫你畫出來了',
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
@@ -1424,14 +1424,6 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
               const SizedBox(height: 20),
               _buildActionButtons(),
               const SizedBox(height: 10),
-              Text(
-                '提示：AI 小結論如果還沒有接上後端，系統會自動使用本地寵物文案。',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey.shade600,
-                  height: 1.5,
-                ),
-              ),
             ],
           ),
         ),

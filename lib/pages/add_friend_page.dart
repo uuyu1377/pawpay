@@ -92,7 +92,7 @@ class _AddFriendPageState extends State<AddFriendPage>
 
   bool _isFriend(int id) =>
       _friends.any((f) => int.tryParse(f['friend_id']?.toString() ?? '') == id ||
-                          int.tryParse(f['id']?.toString() ?? '') == id);
+          int.tryParse(f['id']?.toString() ?? '') == id);
 
   void _snack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -129,7 +129,7 @@ class _AddFriendPageState extends State<AddFriendPage>
       return;
     }
     if (friendId == _myUserId) {
-      _snack('不能加自己為好友 😅');
+      _snack('不能加自己為好友');
       return;
     }
 
@@ -236,43 +236,43 @@ class _AddFriendPageState extends State<AddFriendPage>
         child: _isLoading
             ? const Center(child: CircularProgressIndicator(color: Colors.pink))
             : _users.isEmpty
-                ? const Center(child: Text('目前沒有符合的使用者', style: TextStyle(color: Colors.grey)))
-                : ListView.builder(
-                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 80),
-                    itemCount: _users.length,
-                    itemBuilder: (_, i) {
-                      final user = _users[i];
-                      final id = int.tryParse(user['id']?.toString() ?? '') ?? 0;
-                      final added = _isFriend(id);
-                      final name = (user['nickname'] ?? user['display_name'] ?? '玩家 $id').toString();
-                      final color = Colors.primaries[name.hashCode.abs() % Colors.primaries.length];
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 8),
-                        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
-                        child: ListTile(
-                          leading: CircleAvatar(
-                            backgroundColor: color.withOpacity(0.15),
-                            child: Text(name.isNotEmpty ? name.substring(0, 1) : '?',
-                                style: TextStyle(color: color, fontWeight: FontWeight.bold)),
-                          ),
-                          title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.brown)),
-                          subtitle: Text('ID: $id${user['email'] != null ? ' • ${user['email']}' : ''}',
-                              style: const TextStyle(fontSize: 12)),
-                          trailing: ElevatedButton(
-                            onPressed: added ? null : () => _addFriendByUser(user),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: added ? Colors.grey[200] : Colors.pink,
-                              foregroundColor: added ? Colors.grey : Colors.white,
-                              shape: const StadiumBorder(),
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(horizontal: 16),
-                            ),
-                            child: Text(added ? '已加入' : '加入'),
-                          ),
-                        ),
-                      );
-                    },
+            ? const Center(child: Text('目前沒有符合的使用者', style: TextStyle(color: Colors.grey)))
+            : ListView.builder(
+          padding: const EdgeInsets.fromLTRB(12, 4, 12, 80),
+          itemCount: _users.length,
+          itemBuilder: (_, i) {
+            final user = _users[i];
+            final id = int.tryParse(user['id']?.toString() ?? '') ?? 0;
+            final added = _isFriend(id);
+            final name = (user['nickname'] ?? user['display_name'] ?? '玩家 $id').toString();
+            final color = Colors.primaries[name.hashCode.abs() % Colors.primaries.length];
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(16)),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: color.withOpacity(0.15),
+                  child: Text(name.isNotEmpty ? name.substring(0, 1) : '?',
+                      style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+                ),
+                title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.brown)),
+                subtitle: Text('ID: $id${user['email'] != null ? ' • ${user['email']}' : ''}',
+                    style: const TextStyle(fontSize: 12)),
+                trailing: ElevatedButton(
+                  onPressed: added ? null : () => _addFriendByUser(user),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: added ? Colors.grey[200] : Colors.pink,
+                    foregroundColor: added ? Colors.grey : Colors.white,
+                    shape: const StadiumBorder(),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                   ),
+                  child: Text(added ? '已加入' : '加入'),
+                ),
+              ),
+            );
+          },
+        ),
       ),
     ]);
   }
@@ -413,7 +413,7 @@ class _AddFriendPageState extends State<AddFriendPage>
           ]),
         ),
         const SizedBox(height: 24),
-        Text('📲 請好友切換到「掃描」頁，對準此 QR Code',
+        Text('請好友切換到「掃描」頁，對準此 QR Code',
             style: TextStyle(color: Colors.grey[600], fontSize: 13),
             textAlign: TextAlign.center),
       ]),

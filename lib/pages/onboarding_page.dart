@@ -435,7 +435,7 @@ class _OnboardingPageState extends State<OnboardingPage> {
                 elevation: 5,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
               ),
-              child: const Text("開啟記帳旅程 🚀", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              child: const Text("開啟記帳旅程", style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ),
           ),
         ],

@@ -342,7 +342,7 @@ class _NewTransactionSheetState extends State<NewTransactionSheet> with TickerPr
 
     if (_totalAmount <= 0) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("請輸入金額 💸")),
+        const SnackBar(content: Text("請輸入金額")),
       );
       return;
     }

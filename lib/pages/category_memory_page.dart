@@ -91,11 +91,9 @@ class _CategoryMemoryPageState extends State<CategoryMemoryPage> {
               ),
               child: Row(
                 children: [
-                  const Text('🧠 ', style: TextStyle(fontSize: 22)),
                   Expanded(
                     child: Text(
-                      '你每次記帳/修正分類，AI 就會記住「這個店家或關鍵字要分到哪」。'
-                          '被記住越多次（次數越高），下次就越會自動幫你分對。',
+                      '你每次記帳或修正分類，AI 就會記住這個店家該分到哪，用越多次分得越準。',
                       style: TextStyle(color: Colors.grey.shade700, height: 1.4, fontSize: 13),
                     ),
                   ),
