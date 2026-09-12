@@ -354,10 +354,10 @@ packages:
     dependency: "direct main"
     description:
       name: flutter_line_sdk
-      sha256: a311289a2f38d1c1c5ea05fc6b421185e571752f51b84df8e01c195e8e890d02
+      sha256: "63bc82a3a53f507ead11700085db00422e426f22f43882c13c8afb78a95b338d"
       url: "https://pub.dev"
     source: hosted
-    version: "2.7.2"
+    version: "2.6.2"
   flutter_lints:
     dependency: "direct dev"
     description:
@@ -732,10 +732,10 @@ packages:
     dependency: transitive
     description:
       name: meta
-      sha256: "23f08335362185a5ea2ad3a4e597f1375e78bce8a040df5c600c8d3552ef2394"
+      sha256: e3641ec5d63ebf0d9b41bd43201a66e3fc79a65db5f61fc181f04cd27aab950c
       url: "https://pub.dev"
     source: hosted
-    version: "1.17.0"
+    version: "1.16.0"
   mime:
     dependency: transitive
     description:
@@ -1193,10 +1193,10 @@ packages:
     dependency: transitive
     description:
       name: test_api
-      sha256: ab2726c1a94d3176a45960b6234466ec367179b87dd74f1611adb1f3b5fb9d55
+      sha256: "522f00f556e73044315fa4585ec3270f1808a4b186c936e612cab0b565ff1e00"
       url: "https://pub.dev"
     source: hosted
-    version: "0.7.7"
+    version: "0.7.6"
   tflite_flutter:
     dependency: "direct main"
     description:
@@ -1311,4 +1311,4 @@ packages:
     version: "6.6.1"
 sdks:
   dart: ">=3.9.2 <4.0.0"
-  flutter: ">=3.38.0"
+  flutter: ">=3.35.0"

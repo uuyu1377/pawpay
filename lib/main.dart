@@ -10,6 +10,8 @@ import 'firebase_options.dart'; // flutterfire configure 產生的檔案
 
 // 引入頁面
 import 'main_app_shell.dart';
+import 'theme/app_palette.dart';
+import 'theme/palette_controller.dart';
 import 'pages/login_page.dart';
 import 'widgets/app_lock_gate.dart';
 import 'services/notification_service.dart'; // ★ 合併自朋友版：遊戲/旅遊匯率提醒通知服務
@@ -46,6 +48,9 @@ void main() async {
   await NotificationService.instance.initialize();
   await NotificationService.instance.syncFromPreferences();
 
+  // 讀使用者在設定頁選的介面色相
+  await PaletteController.instance.load();
+
   final prefs = await SharedPreferences.getInstance();
   final bool isOnboarded = prefs.getBool('is_onboarded') ?? false;
 
@@ -63,24 +68,13 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    // 監聽使用者選的色相：設定頁一改，整個 App 的顏色就跟著換
+    return ValueListenableBuilder<PaletteSpec>(
+      valueListenable: PaletteController.instance,
+      builder: (context, spec, _) => MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'AI 記帳',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFFFF8FAB),
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          ),
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-        ),
-      ),
+      theme: buildAppTheme(spec),
       home: AppLockGate(
         enabledForThisStart: enableAppLock,
         child: startPage,
@@ -95,6 +89,7 @@ class MyApp extends StatelessWidget {
         '/scan': (context) => const UnifiedAutoScanPageV2(),
         '/scan/traditional': (context) => const UnifiedAutoScanPageV2(forceTraditional: true),
       },
+      ),
     );
   }
 }

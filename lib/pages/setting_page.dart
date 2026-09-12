@@ -12,6 +12,8 @@ import 'package:share_plus/share_plus.dart';
 import '../config/api_config.dart';
 import '../services/avatar_service.dart';
 import '../services/settings_export_service.dart';
+import '../theme/app_palette.dart';
+import '../theme/palette_controller.dart';
 import '../services/database_helper.dart'; // ★★★ 新增這行 ★★★
 import '../services/currency_service.dart';
 import '../services/notification_service.dart'; // ★ 合併自朋友版：旅遊/每日提醒通知服務
@@ -1459,6 +1461,204 @@ class SettingPageState extends State<SettingPage> {
     );
   }
 
+  /// 介面配色。色相／飽和度／亮度三個參數，整個 App 的顏色一起換。
+  ///
+  /// 三個參數都會同時影響底色、分隔線、文字與重點色，但各角色之間的
+  /// 飽和度倍率與亮度偏移是寫死的（見 lib/theme/app_palette.dart），
+  /// 所以怎麼調都不會調出「字讀不到」的組合。
+  ///
+  /// 飽和度是拿來救綠色系、青色系的 —— 那些色相在 100% 飽和度下會像螢光筆。
+  Widget _buildHuePicker() {
+    final spec = PaletteController.instance.value;
+    final p = AppPalette.fromSpec(spec);
+
+    void apply(PaletteSpec next, {bool persist = false}) {
+      PaletteController.instance.update(next, persist: persist);
+      setState(() {});
+    }
+
+    Color at({double? hue, double? sat, double? light}) =>
+        AppPalette.fromSpec(spec.copyWith(hue: hue, sat: sat, light: light)).accent;
+
+    Widget bar({
+      required String label,
+      required String reading,
+      required double value,
+      required double min,
+      required double max,
+      required Gradient gradient,
+      required ValueChanged<double> onChanged,
+      required ValueChanged<double> onEnd,
+    }) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label,
+                  style: TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600, color: p.ink)),
+              Text(reading, style: TextStyle(fontSize: 12, color: p.ink2)),
+            ],
+          ),
+          SizedBox(
+            height: 34,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 11),
+                  child: Container(
+                    height: 9,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(AppPalette.rPill),
+                      gradient: gradient,
+                    ),
+                  ),
+                ),
+                SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 9,
+                    activeTrackColor: Colors.transparent,
+                    inactiveTrackColor: Colors.transparent,
+                    thumbColor: Colors.white,
+                    overlayColor: p.accent.withOpacity(0.15),
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 9,
+                      elevation: 3,
+                      pressedElevation: 5,
+                    ),
+                  ),
+                  child: Slider(
+                    value: value,
+                    min: min,
+                    max: max,
+                    onChanged: onChanged,
+                    onChangeEnd: onEnd,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 預覽：重點色、淡底、頁面底色、分隔線一次看到
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: p.accent,
+                  borderRadius: BorderRadius.circular(AppPalette.rControl),
+                ),
+              ),
+              const SizedBox(width: 8),
+              for (final c in [p.accentSoft, p.bg, p.line])
+                Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: Container(
+                    width: 22,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: c,
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: p.line),
+                    ),
+                  ),
+                ),
+              const Spacer(),
+              TextButton(
+                onPressed: () {
+                  PaletteController.instance.reset();
+                  setState(() {});
+                },
+                child: const Text('回復預設'),
+              ),
+            ],
+          ),
+          bar(
+            label: '色相',
+            reading: '${spec.hue.round()}°',
+            value: spec.hue,
+            min: 0,
+            max: 360,
+            gradient: LinearGradient(colors: [
+              for (int h = 0; h <= 360; h += 30) at(hue: (h % 360).toDouble()),
+            ]),
+            onChanged: (v) => apply(spec.copyWith(hue: v)),
+            onEnd: (v) => apply(spec.copyWith(hue: v), persist: true),
+          ),
+          bar(
+            label: '飽和度',
+            reading: '${(spec.sat * 100).round()}%',
+            value: spec.sat,
+            min: 0,
+            max: 1,
+            gradient: LinearGradient(
+                colors: [at(sat: 0), at(sat: 0.5), at(sat: 1)]),
+            onChanged: (v) => apply(spec.copyWith(sat: v)),
+            onEnd: (v) => apply(spec.copyWith(sat: v), persist: true),
+          ),
+          bar(
+            label: '亮度',
+            reading: '${(spec.light * 100).round()}%',
+            value: spec.light,
+            min: 0.32,
+            max: 0.92,
+            gradient: LinearGradient(
+                colors: [at(light: 0.32), at(light: 0.62), at(light: 0.92)]),
+            onChanged: (v) => apply(spec.copyWith(light: v)),
+            onEnd: (v) => apply(spec.copyWith(light: v), persist: true),
+          ),
+          const SizedBox(height: 10),
+          Text('快速選色（飽和度與亮度都調好了）',
+              style: TextStyle(fontSize: 12, color: p.ink2)),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 14,
+            runSpacing: 12,
+            children: [
+              for (final preset in kPalettePresets)
+                InkWell(
+                  borderRadius: BorderRadius.circular(AppPalette.rPill),
+                  onTap: () => apply(preset.spec, persist: true),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color: AppPalette.fromSpec(preset.spec).accent,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color:
+                                preset.spec == spec ? p.ink : Colors.transparent,
+                            width: 2.5,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(preset.name,
+                          style: TextStyle(fontSize: 10, color: p.ink2)),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildTile({
     required IconData icon,
     required String title,
@@ -1607,6 +1807,8 @@ class SettingPageState extends State<SettingPage> {
                   ],
                 ),
               ),
+              _buildSectionTitle('介面配色'),
+              _buildSectionCard([_buildHuePicker()]),
               _buildSectionTitle('帳務與資料'),
               _buildSectionCard([
                 _buildTile(

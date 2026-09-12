@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+
+import '../theme/app_palette.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:lottie/lottie.dart';
 import 'package:sensors_plus/sensors_plus.dart';
@@ -495,9 +497,14 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     });
   }
 
+  // 每走一格的節奏。從 180ms 放慢到 420ms，讓玩家看得見棋子一步一步走過去。
+  static const Duration _stepInterval = Duration(milliseconds: 420);
+  // 棋子滑動的動畫時間，比節奏略短，走完一格會有短暫的落地停頓。
+  static const Duration _stepGlide = Duration(milliseconds: 360);
+
   void _movePlayer(Player p, int steps) async {
     for (int i = 0; i < steps; i++) {
-      await Future.delayed(const Duration(milliseconds: 180));
+      await Future.delayed(_stepInterval);
       if (!mounted) return;
       setState(() => p.pathStep = (p.pathStep + 1) % _currentPath.length);
     }
@@ -743,7 +750,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                         _scale = 1.0;
                       }),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFFF8FAB),
+                        backgroundColor: AppPalette.of(context).accent,
                         foregroundColor: Colors.white,
                         shape: const StadiumBorder(),
                         padding: const EdgeInsets.symmetric(vertical: 12),
@@ -773,7 +780,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
             size: Size(mapSize, mapSize),
             painter: _currentTheme == MapTheme.taiwan
                 ? TaiwanMapPainter()
-                : MagicIslandPainter(),
+                : MagicIslandPainter(accent: AppPalette.of(context).accent),
           ),
           // 路徑連線
           CustomPaint(
@@ -849,7 +856,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
             decoration: BoxDecoration(
               color: bg,
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: isNext ? const Color(0xFFFF8FAB) : Colors.grey.shade300, width: isNext ? 2 : 1),
+              border: Border.all(color: isNext ? AppPalette.of(context).accent : Colors.grey.shade300, width: isNext ? 2 : 1),
               boxShadow: [BoxShadow(color: Colors.black12, blurRadius: isNext ? 6 : 2, offset: const Offset(0, 2))],
             ),
             child: Column(
@@ -882,7 +889,10 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     final left = (cx - size / 2).clamp(0.0, mapSize - size);
     final top  = (cy - size).clamp(0.0, mapSize - size);
 
-    return Positioned(
+    // AnimatedPositioned：棋子會平滑滑到下一格，而不是瞬間跳過去。
+    return AnimatedPositioned(
+      duration: _stepGlide,
+      curve: Curves.easeOut,
       left: left,
       top:  top,
       child: Column(
@@ -1180,7 +1190,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
               top: 8,
               child: _roundIconButton(
                 Icons.arrow_back_ios_new_rounded,
-                const Color(0xFFFF8FAB),
+                AppPalette.of(context).accent,
                     () => Navigator.of(context).maybePop(),
               ),
             ),
@@ -1304,7 +1314,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         TextButton(onPressed: onCancel, child: Text(cancelLabel, style: const TextStyle(color: Colors.grey))),
         ElevatedButton(
           onPressed: onConfirm,
-          style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFFF8FAB), foregroundColor: Colors.white, shape: const StadiumBorder()),
+          style: ElevatedButton.styleFrom(backgroundColor: AppPalette.of(context).accent, foregroundColor: Colors.white, shape: const StadiumBorder()),
           child: Text(confirmLabel, style: const TextStyle(fontWeight: FontWeight.bold)),
         ),
       ],
@@ -1432,6 +1442,11 @@ class TaiwanMapPainter extends CustomPainter {
 // 魔法天空島背景繪製器（可愛版）
 // ==========================================================
 class MagicIslandPainter extends CustomPainter {
+  const MagicIslandPainter({required this.accent});
+
+  /// 從設定頁的色相帶進來，魔法島的粉紅系裝飾才會跟著使用者的配色變。
+  final Color accent;
+
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width;
@@ -1443,7 +1458,10 @@ class MagicIslandPainter extends CustomPainter {
       Paint()..shader = LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
-        colors: [const Color(0xFFFCE4EC), const Color(0xFFEDE7F6)],
+        colors: [
+          HSLColor.fromColor(accent).withLightness(0.93).toColor(),
+          const Color(0xFFEDE7F6),
+        ],
       ).createShader(Rect.fromLTWH(0, 0, w, h)),
     );
 
@@ -1453,7 +1471,7 @@ class MagicIslandPainter extends CustomPainter {
     // 散落小愛心
     final rng = Random(42);
     final heartColors = [
-      const Color(0xFFFF8FAB), const Color(0xFFCE93D8),
+      accent, const Color(0xFFCE93D8),
       const Color(0xFFFFCC80), const Color(0xFF80DEEA),
     ];
     for (int i = 0; i < 18; i++) {
@@ -1477,9 +1495,9 @@ class MagicIslandPainter extends CustomPainter {
 
     // 中央魔法圓
     canvas.drawCircle(Offset(w / 2, h / 2), w * 0.10,
-        Paint()..color = const Color(0xFFFFD6E0).withOpacity(0.7));
+        Paint()..color = HSLColor.fromColor(accent).withLightness(0.86).toColor().withOpacity(0.7));
     canvas.drawCircle(Offset(w / 2, h / 2), w * 0.10,
-        Paint()..color = const Color(0xFFFF8FAB).withOpacity(0.6)
+        Paint()..color = accent.withOpacity(0.6)
           ..style = PaintingStyle.stroke
           ..strokeWidth = 2);
 

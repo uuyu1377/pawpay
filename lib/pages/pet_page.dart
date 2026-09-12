@@ -907,15 +907,21 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
   }
 
   Widget _buildFoodGrid(Color accentColor) {
-    return GridView.builder(
-      // ★★★ 修正：原本設為 NeverScrollableScrollPhysics 導致食物清單無法上下滑動，
-      //     下面的食物會被蓋住。改為可滑動（外層是 Expanded，高度已有限制）。★★★
-      physics: const AlwaysScrollableScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 3,
-        childAspectRatio: 1.0,
-        mainAxisSpacing: 8,
-        crossAxisSpacing: 8,
+    // 格子高度改成「依可用高度回推」，所有飼料一次看完，不需要上下滑動。
+    // 之後 _foodShop 增減項目也會自動重算，不用再手調 childAspectRatio。
+    const cols = 3;
+    const gap = 8.0;
+    final rows = (_foodShop.length / cols).ceil();
+    return LayoutBuilder(builder: (context, box) {
+      final cellW = (box.maxWidth - gap * (cols - 1)) / cols;
+      final cellH = (box.maxHeight - gap * (rows - 1)) / rows;
+      return GridView.builder(
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: cols,
+        childAspectRatio: cellW / cellH,
+        mainAxisSpacing: gap,
+        crossAxisSpacing: gap,
       ),
       itemCount: _foodShop.length,
       itemBuilder: (context, index) {
@@ -947,7 +953,8 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
           ),
         );
       },
-    );
+      );
+    });
   }
 
   Widget _buildLockedShop() {

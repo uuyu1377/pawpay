@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:http/http.dart' as http;
 import 'package:lottie/lottie.dart'; // Lottie 動畫套件
 
+import 'package:user_interface/theme/app_palette.dart';
 import 'package:user_interface/models/transaction_model.dart';
 import 'package:user_interface/widgets/new_transaction_sheet.dart';
 import 'package:user_interface/services/database_helper.dart';
@@ -2946,7 +2947,7 @@ class _MainAppShellState extends State<MainAppShell> {
                     ),
                   ],
                   currentIndex: _selectedIndex,
-                  selectedItemColor: const Color(0xFFFF8FAB),
+                  selectedItemColor: AppPalette.of(context).accent,
                   unselectedItemColor: Colors.grey.shade400,
                   onTap: _onItemTapped,
                   backgroundColor: Colors.transparent,
@@ -2981,6 +2982,7 @@ class _MainAppShellState extends State<MainAppShell> {
   }
 
   Widget _buildActionButton(IconData icon, String label, VoidCallback onPressed) {
+    final pal = AppPalette.of(context);
     return InkWell(
       onTap: onPressed,
       borderRadius: BorderRadius.circular(30),
@@ -2992,14 +2994,14 @@ class _MainAppShellState extends State<MainAppShell> {
             Container(
               width: 46, height: 46,
               decoration: BoxDecoration(
-                color: const Color(0xFFFFE4EE),
+                color: pal.accentSoft,
                 shape: BoxShape.circle,
-                border: Border.all(color: const Color(0xFFFF8FAB).withOpacity(0.5), width: 1.5),
+                border: Border.all(color: pal.accent.withOpacity(0.5), width: 1.5),
               ),
-              child: Icon(icon, size: 24, color: const Color(0xFFFF8FAB)),
+              child: Icon(icon, size: 24, color: pal.accent),
             ),
             const SizedBox(height: 4),
-            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFFFF8FAB), fontWeight: FontWeight.w600)),
+            Text(label, style: TextStyle(fontSize: 12, color: pal.accent, fontWeight: FontWeight.w600)),
           ],
         ),
       ),

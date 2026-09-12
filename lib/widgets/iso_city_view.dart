@@ -39,14 +39,10 @@ const double _kBodyAnchor = 26; // 中段樓層與所有屋頂共用的錨點
 /// 每張圖的錨點（圖片底邊 → 對齊點的距離，單位 px）。
 /// 這些數字是從 PNG 的 alpha 邊界量出來的，換圖就要重量。
 const Map<String, double> _kAnchor = {
-  't_pave': 66,
-  't_road_gy': 66,
-  't_road_gx': 69,
-  't_road_cross': 69,
+  't_pave': 69,
+  't_road': 66,
   't_hedge': 68,
   't_tree': 68,
-  't_lamp_a': 69,
-  't_lamp_b': 69,
   'b_base_0': 68,
   'b_base_1': 68,
   'b_base_2': 68,
@@ -100,15 +96,11 @@ _IsoLayout isoLayoutFor(int categories) {
 
 /// 沒蓋房子的格子放什麼：馬路、行道樹、草皮、路燈。
 String isoGroundKey(int gx, int gy) {
-  final roadX = gx % 3 == 2;
-  final roadY = gy % 3 == 2;
-  if (roadX && roadY) return 't_road_cross';
-  if (roadX) return 't_road_gy';
-  if (roadY) return 't_road_gx';
+  // 馬路一律用同一張全柏油地磚：沒有方向性，也沒有 Kenney 原圖路緣上
+  // 那些白色小方塊。
+  if (gx % 3 == 2 || gy % 3 == 2) return 't_road';
   if (gx % 3 == 0 && gy % 3 == 0) return 't_tree';
-  if (gx % 3 == 1 && gy % 3 == 1) {
-    return (gx ~/ 3 + gy ~/ 3).isEven ? 't_hedge' : 't_lamp_a';
-  }
+  if (gx % 3 == 1 && gy % 3 == 1) return 't_hedge';
   // 還沒被用到的建地
   return (gx + gy) % 3 == 0 ? 't_tree' : 't_pave';
 }
@@ -153,13 +145,9 @@ class IsoAtlas {
   static Future<IsoAtlas> _loadAll() async {
     final keys = <String>[
       't_pave',
-      't_road_gy',
-      't_road_gx',
-      't_road_cross',
+      't_road',
       't_hedge',
       't_tree',
-      't_lamp_a',
-      't_lamp_b',
       'b_roof_a',
       'b_roof_b',
       'b_roof_c',

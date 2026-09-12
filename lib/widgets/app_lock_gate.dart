@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../theme/app_palette.dart';
+
 /// App 鎖入口元件。
 ///
 /// 設定頁會把開關與 4 位數密碼存在 SharedPreferences：
@@ -117,7 +119,7 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
 
   Widget _buildLockScreen() {
     return Material(
-      color: const Color(0xFFFFF7FA),
+      color: AppPalette.of(context).bg,
       child: SafeArea(
         child: Column(
           children: [
@@ -136,7 +138,7 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
                   ),
                 ],
               ),
-              child: const Icon(Icons.lock_rounded, size: 42, color: Color(0xFFFF8FAB)),
+              child: Icon(Icons.lock_rounded, size: 42, color: AppPalette.of(context).accent),
             ),
             const SizedBox(height: 22),
             const Text(
@@ -160,8 +162,8 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
                   height: 15,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: filled ? const Color(0xFFFF8FAB) : Colors.white,
-                    border: Border.all(color: const Color(0xFFFF8FAB), width: 1.4),
+                    color: filled ? AppPalette.of(context).accent : Colors.white,
+                    border: Border.all(color: AppPalette.of(context).accent, width: 1.4),
                   ),
                 );
               }),
