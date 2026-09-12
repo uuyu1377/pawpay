@@ -217,7 +217,10 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
   Future<void> _loadGameStateFromApi(MapTheme theme) async {
     try {
+      // ★ 新增：先拿到真正登入的 user_id，避免所有帳號共用同一份大富翁進度
+      final realUserId = await GameApiService.instance.resolveCurrentUserId();
       final data = await GameApiService.instance.fetchGameState(
+        userId: realUserId,
         theme: theme == MapTheme.taiwan ? 'taiwan' : 'magicIsland',
       );
       if (!mounted) return;
@@ -257,7 +260,10 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
   Future<void> _persistPlayerState(Player p) async {
     try {
+      // ★ 新增：一樣要帶入真正登入的 user_id，跟讀取那邊保持一致
+      final realUserId = await GameApiService.instance.resolveCurrentUserId();
       await GameApiService.instance.updatePlayerState(
+        userId: realUserId,
         localId: p.id, money: p.money, pathStep: p.pathStep,
         jailTurns: p.jailTurns, isBankrupt: p.isBankrupt, theme: _themeKey,
       );
@@ -268,7 +274,10 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     final idx = _currentPath.indexOf(block);
     if (idx < 0) return;
     try {
+      // ★ 新增：同樣帶入真正登入的 user_id，避免地產歸屬也被共用帳號卡住
+      final realUserId = await GameApiService.instance.resolveCurrentUserId();
       await GameApiService.instance.updateBlockState(
+        userId: realUserId,
         theme: _themeKey, index: idx, name: block.name, baseCost: block.baseCost,
         blockType: _blockTypeKey(block.type), positionDx: block.position.dx, positionDy: block.position.dy,
         level: block.level, ownerLocalId: block.ownerId,
@@ -384,11 +393,11 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         emoji: petEmoji,
       ),
       Player(id: 1, name: "小明", color: const Color(0xFFE53935), icon: Icons.face_rounded,
-        animationPath: 'assets/animations/Cat.json', emoji: '🐱'),
+          animationPath: 'assets/animations/Cat.json', emoji: '🐱'),
       Player(id: 2, name: "小華", color: const Color(0xFF43A047), icon: Icons.face_retouching_natural_rounded,
-        animationPath: 'assets/animations/Fox.json', emoji: '🦊'),
+          animationPath: 'assets/animations/Fox.json', emoji: '🦊'),
       Player(id: 3, name: "系統", color: const Color(0xFFFF9800), icon: Icons.computer_rounded,
-        animationPath: 'assets/animations/Parrot.json', emoji: '🦜'),
+          animationPath: 'assets/animations/Parrot.json', emoji: '🦜'),
     ];
     _currentPlayerIdx = 0;
   }
@@ -533,7 +542,12 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
   void _addLog(String msg) {
     setState(() => _gameLog = msg);
-    GameApiService.instance.addGameLog(eventType: 'game', message: msg).catchError((_) {});
+    // ★ 新增：一樣先拿真正登入的 user_id，再送出遊戲紀錄，避免紀錄也混在共用帳號裡
+    GameApiService.instance.resolveCurrentUserId().then((realUserId) {
+      GameApiService.instance
+          .addGameLog(userId: realUserId, eventType: 'game', message: msg)
+          .catchError((_) {});
+    });
   }
 
   void _startGame(MapTheme theme) {
@@ -855,19 +869,19 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                 ),
                 // 寵物動畫本體
                 SizedBox(
-                width: size,
-                height: size,
-                child: isUser
-                ? Image.asset(
-                p.animationPath!,
-                fit: BoxFit.contain,
-                )
-                    : Lottie.asset(
-                p.animationPath!,
-                fit: BoxFit.contain,
-                animate: true,
-                repeat: true,
-                ),
+                  width: size,
+                  height: size,
+                  child: isUser
+                      ? Image.asset(
+                    p.animationPath!,
+                    fit: BoxFit.contain,
+                  )
+                      : Lottie.asset(
+                    p.animationPath!,
+                    fit: BoxFit.contain,
+                    animate: true,
+                    repeat: true,
+                  ),
                 ),
               ],
             )
@@ -934,26 +948,26 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                             shape: BoxShape.circle,
                             color: p.color.withOpacity(isActive ? 1.0 : 0.45),
                           ),
-                      child: p.id == 0 && p.animationPath != null
-                          ? Padding(
-                        padding: const EdgeInsets.all(3),
-                        child: Image.asset(
-                          p.animationPath!,
-                          fit: BoxFit.contain,
-                        ),
-                      )
-                          : p.animationPath != null
-                          ? Center(
-                        child: Text(
-                          p.emoji ?? '🐾',
-                          style: const TextStyle(fontSize: 16),
-                        ),
-                      )
-                          : Icon(
-                        p.icon,
-                        size: 13,
-                        color: Colors.white,
-                      ),
+                          child: p.id == 0 && p.animationPath != null
+                              ? Padding(
+                            padding: const EdgeInsets.all(3),
+                            child: Image.asset(
+                              p.animationPath!,
+                              fit: BoxFit.contain,
+                            ),
+                          )
+                              : p.animationPath != null
+                              ? Center(
+                            child: Text(
+                              p.emoji ?? '🐾',
+                              style: const TextStyle(fontSize: 16),
+                            ),
+                          )
+                              : Icon(
+                            p.icon,
+                            size: 13,
+                            color: Colors.white,
+                          ),
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -1082,7 +1096,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                         fit: BoxFit.contain,
                       ),
                     ),
-                    ),
+                  ),
                 ),
               ],
             ),
@@ -1113,7 +1127,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
               child: _roundIconButton(
                 Icons.arrow_back_ios_new_rounded,
                 const Color(0xFFFF8FAB),
-                () => Navigator.of(context).maybePop(),
+                    () => Navigator.of(context).maybePop(),
               ),
             ),
             Column(

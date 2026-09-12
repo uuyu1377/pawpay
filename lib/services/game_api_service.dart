@@ -200,6 +200,14 @@ class GameApiService {
     return (saved != null && saved.isNotEmpty) ? saved : '1';
   }
 
+  // ★★★ 新增：公開版本，回傳 int 型別，給大富翁棋盤 (fetchGameState / updatePlayerState) 用 ★★★
+  // 原本這兩個函式的 userId 參數預設寫死是 1，導致所有帳號共用同一份大富翁進度。
+  // 呼叫這個方法可以拿到真正登入的 user_id，沒登入或讀不到才會退回 1。
+  Future<int> resolveCurrentUserId() async {
+    final idStr = await _resolveUserId();
+    return int.tryParse(idStr) ?? 1;
+  }
+
   Future<Options> _authOptions() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('jwt_token');
