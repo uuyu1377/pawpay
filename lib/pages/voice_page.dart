@@ -172,13 +172,12 @@ class _VoicePageState extends State<VoicePage> {
         _statusText = '連線失敗：$e';
       });
     } finally {
-      if (!mounted) return;
-
-      setState(() {
-        _isProcessing = false;
-      });
+        if (mounted) {
+          setState(() {
+            _isProcessing = false;
+          });
+        }
     }
-  }
 
   void _confirmAndReturn() {
     if (_textController.text.isEmpty) return;
