@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:async'; // 必須導入 Timer
+import 'package:user_interface/config/backend_config.dart';
 
 class VoicePage extends StatefulWidget {
   const VoicePage({super.key});
@@ -28,8 +29,7 @@ class _VoicePageState extends State<VoicePage> {
   // 音量門檻 (dB)，數值越接近 0 越靈敏。通常 -40 到 -30 之間適合。
   final double _volumeThreshold = -30.0;
 
-  final String _apiKey = "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";
-  final String _apiUrl = "https://api.openai.com/v1/audio/transcriptions";
+
 
   @override
   void dispose() {
@@ -113,29 +113,70 @@ class _VoicePageState extends State<VoicePage> {
   // 4. OpenAI API 傳送 (保持不變)
   Future<void> _sendAudioToOpenAI(File audioFile) async {
     try {
-      var request = http.MultipartRequest('POST', Uri.parse(_apiUrl));
-      request.headers.addAll({'Authorization': 'Bearer $_apiKey'});
-      request.files.add(await http.MultipartFile.fromPath('file', audioFile.path));
-      request.fields['model'] = 'whisper-1';
-      request.fields['language'] = 'zh';
+      final uri = Uri.parse(
+        '${BackendConfig.baseUrl}/api/transcribe',
+      );
 
-      var streamedResponse = await request.send();
-      var response = await http.Response.fromStream(streamedResponse);
+      debugPrint('語音辨識準備呼叫：$uri');
 
-      if (response.statusCode == 200) {
-        var data = json.decode(response.body);
+      final request = http.MultipartRequest(
+        'POST',
+        uri,
+      );
+
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'file',
+          audioFile.path,
+        ),
+      );
+
+      final streamedResponse = await request.send();
+
+      final response = await http.Response.fromStream(
+        streamedResponse,
+      );
+
+      debugPrint(
+        '語音辨識 status：${response.statusCode}',
+      );
+
+      debugPrint(
+        '語音辨識 response：${response.body}',
+      );
+
+      final data = json.decode(response.body);
+
+      if (response.statusCode == 200 &&
+          data['status'] == 'success') {
+        if (!mounted) return;
+
         setState(() {
-          _textController.text = data['text'] ?? "";
-          _statusText = "辨識完成";
+          _textController.text =
+              data['text']?.toString() ?? '';
+
+          _statusText = '辨識完成';
         });
       } else {
-        var error = json.decode(response.body);
-        setState(() => _statusText = "API 錯誤: ${error['error']['message']}");
+        if (!mounted) return;
+
+        setState(() {
+          _statusText =
+          'API 錯誤：${data['message'] ?? '未知錯誤'}';
+        });
       }
     } catch (e) {
-      setState(() => _statusText = "連線失敗: $e");
+      if (!mounted) return;
+
+      setState(() {
+        _statusText = '連線失敗：$e';
+      });
     } finally {
-      setState(() => _isProcessing = false);
+      if (!mounted) return;
+
+      setState(() {
+        _isProcessing = false;
+      });
     }
   }
 
