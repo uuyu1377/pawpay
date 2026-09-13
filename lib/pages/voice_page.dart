@@ -26,9 +26,9 @@ class _VoicePageState extends State<VoicePage> {
   // --- 自動停止相關變數 ---
   Timer? _silenceTimer;
   StreamSubscription<Amplitude>? _amplitudeSub;
+
   // 音量門檻 (dB)，數值越接近 0 越靈敏。通常 -40 到 -30 之間適合。
   final double _volumeThreshold = -30.0;
-
 
 
   @override
@@ -172,87 +172,96 @@ class _VoicePageState extends State<VoicePage> {
         _statusText = '連線失敗：$e';
       });
     } finally {
-        if (mounted) {
-          setState(() {
-            _isProcessing = false;
-          });
-        }
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+        });
+      }
+    }
+  }
+
+    void _confirmAndReturn() {
+      if (_textController.text.isEmpty) return;
+      Navigator.pop(context, {
+        'type': 'voice_input',
+        'text': _textController.text,
+      });
     }
 
-  void _confirmAndReturn() {
-    if (_textController.text.isEmpty) return;
-    Navigator.pop(context, {
-      'type': 'voice_input',
-      'text': _textController.text,
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.white,
-      appBar: AppBar(
-        title: const Text("智慧語音辨識", style: TextStyle(color: Colors.black)),
+    @override
+    Widget build(BuildContext context) {
+      return Scaffold(
         backgroundColor: Colors.white,
-        elevation: 0,
-      ),
-      body: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 30.0),
-        child: Column(
-          children: [
-            const SizedBox(height: 40),
+        appBar: AppBar(
+          title: const Text(
+              "智慧語音辨識", style: TextStyle(color: Colors.black)),
+          backgroundColor: Colors.white,
+          elevation: 0,
+        ),
+        body: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 30.0),
+          child: Column(
+            children: [
+              const SizedBox(height: 40),
 
-            if (_isProcessing)
-              Column(
-                children: [
-                  const CircularProgressIndicator(color: Colors.blue),
-                  const SizedBox(height: 12),
-                  const Text("Whisper 正在分析中...",
-                      style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16)),
-                ],
-              )
-            else
-              Text(_statusText, style: TextStyle(color: Colors.grey[600], fontSize: 14)),
+              if (_isProcessing)
+                Column(
+                  children: [
+                    const CircularProgressIndicator(color: Colors.blue),
+                    const SizedBox(height: 12),
+                    const Text("Whisper 正在分析中...",
+                        style: TextStyle(color: Colors.blue,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16)),
+                  ],
+                )
+              else
+                Text(_statusText,
+                    style: TextStyle(color: Colors.grey[600], fontSize: 14)),
 
-            const SizedBox(height: 20),
-            TextField(
-              controller: _textController,
-              maxLines: 5,
-              style: const TextStyle(fontSize: 20),
-              decoration: InputDecoration(
-                hintText: "辨識結果...",
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
-                filled: true,
-                fillColor: Colors.grey[50],
-              ),
-            ),
-            const Spacer(),
-            SizedBox(
-              width: double.infinity,
-              height: 55,
-              child: ElevatedButton(
-                onPressed: _isProcessing ? null : _confirmAndReturn,
-                style: ElevatedButton.styleFrom(backgroundColor: Colors.black87),
-                child: const Text("確認送出分析", style: TextStyle(color: Colors.white, fontSize: 18)),
-              ),
-            ),
-            const SizedBox(height: 30),
-            GestureDetector(
-              onTap: _isRecording ? _stopListening : _startListening,
-              child: CircleAvatar(
-                radius: 40,
-                backgroundColor: _isRecording ? Colors.red[50] : Colors.blue[50],
-                child: Icon(
-                  _isRecording ? Icons.stop : Icons.mic,
-                  color: _isRecording ? Colors.red : Colors.blue,
-                  size: 35,
+              const SizedBox(height: 20),
+              TextField(
+                controller: _textController,
+                maxLines: 5,
+                style: const TextStyle(fontSize: 20),
+                decoration: InputDecoration(
+                  hintText: "辨識結果...",
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(15)),
+                  filled: true,
+                  fillColor: Colors.grey[50],
                 ),
               ),
-            ),
-            const SizedBox(height: 50),
-          ],
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                height: 55,
+                child: ElevatedButton(
+                  onPressed: _isProcessing ? null : _confirmAndReturn,
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.black87),
+                  child: const Text("確認送出分析",
+                      style: TextStyle(color: Colors.white, fontSize: 18)),
+                ),
+              ),
+              const SizedBox(height: 30),
+              GestureDetector(
+                onTap: _isRecording ? _stopListening : _startListening,
+                child: CircleAvatar(
+                  radius: 40,
+                  backgroundColor: _isRecording ? Colors.red[50] : Colors
+                      .blue[50],
+                  child: Icon(
+                    _isRecording ? Icons.stop : Icons.mic,
+                    color: _isRecording ? Colors.red : Colors.blue,
+                    size: 35,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 50),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    }
   }
-}
