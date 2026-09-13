@@ -33,6 +33,53 @@ class MainAppShell extends StatefulWidget {
 }
 
 class _MainAppShellState extends State<MainAppShell> {
+  // ★★★ 新增：常見連鎖店關鍵字清單，跟後端 app.py 的 _MEMORY_STORE_KEYWORDS 保持同一份，
+  //   用來從備註文字裡「找店家」，不強迫使用者打【括號】格式。
+  static const List<String> _kMemoryStoreKeywords = [
+    "全家", "全聯", "7-11", "711", "統一超商", "萊爾富", "OK超商", "美廉社",
+    "星巴克", "cama", "路易莎", "85度c", "麥當勞", "肯德基", "摩斯", "subway", "大苑子",
+    "五十嵐", "清心", "可不可", "迷客夏", "coco", "家樂福", "costco", "好市多", "大潤發", "愛買",
+    "頂好", "寶雅", "屈臣氏", "康是美", "誠品", "蝦皮", "momo", "pchome", "台鐵", "高鐵", "捷運", "ubike",
+  ];
+
+  // ★★★ 新增：從備註文字裡抓核心關鍵字時，順便去除數字/金額/時間/填充詞這些雜訊，
+  //   讓「星巴克拿鐵120元」這種備註，能抽出「拿鐵」這種具體東西，不只是店家名稱。
+  //   規則跟後端 app.py 的 _MEMORY_EXTRA_STOP 保持同一份邏輯，維持前後端判斷一致。
+  static const List<String> _kNoiseWords = [
+    "今天", "昨天", "前天", "早上", "中午", "下午", "晚上", "剛才", "剛剛", "在", "的", "東西",
+    "一些", "還有", "然後", "我在", "順便", "個", "們", "這", "那", "一杯", "一份", "一個", "買了",
+    "元", "塊", "NTD", "TWD", "台幣",
+  ];
+
+  // ★★★ 修改：回傳 (關鍵字, 是不是已知店家)，讓後面決定要講「又去X啦」還是「X又來一筆啦」這種不同語氣。
+  //   優先順序：括號格式 → 常見店家清單 → 去除雜訊後剩下的核心文字(可能是店家、也可能是買的東西)。
+  ({String? keyword, bool isStore}) _extractTopicFromNote(String note) {
+    if (note.trim().isEmpty) return (keyword: null, isStore: false);
+
+    final bracketMatch = RegExp(r'【([^】]+)】').firstMatch(note);
+    if (bracketMatch != null) {
+      final name = bracketMatch.group(1)?.trim();
+      if (name != null && name.isNotEmpty) return (keyword: name, isStore: true);
+    }
+
+    final upperNote = note.toUpperCase();
+    for (final kw in _kMemoryStoreKeywords) {
+      if (upperNote.contains(kw.toUpperCase())) return (keyword: kw, isStore: true);
+    }
+
+    // ★ 新增：都沒命中已知店家，去掉雜訊詞跟數字，看看剩下的核心內容是不是一個「東西」
+    var cleaned = note;
+    cleaned = cleaned.replaceAll(RegExp(r'[0-9０-９.,，。！!]+'), ''); // 去掉數字/金額/標點
+    for (final w in _kNoiseWords) {
+      cleaned = cleaned.replaceAll(w, '');
+    }
+    cleaned = cleaned.trim();
+
+    // 抽出來的字太長(可能是一整句沒清乾淨)或太短(可能只剩空殼)都不夠可靠，寧可不加料
+    if (cleaned.isEmpty || cleaned.length > 10) return (keyword: null, isStore: false);
+    return (keyword: cleaned, isStore: false);
+  }
+
   int _selectedIndex = 0;
   List<Transaction> _transactions = [];
   static const _kPrefKey = 'scan_mode';
@@ -2630,10 +2677,22 @@ class _MainAppShellState extends State<MainAppShell> {
 
     // 3. 準備動物要講的話 (本地金句)
     // ★★★ 修改：傳入當前上場寵物，讓斷網金句也用「你選的那隻」講話，而非隨機 ★★★
-    String localQuote = LocalAiService.getRandomComment(tx.category, petKey: _currentPetKey);
+    // 3. 準備動物要講的話 (本地金句)
+    // ★★★ 修改：傳入當前上場寵物，讓斷網金句也用「你選的那隻」講話，而非隨機 ★★★
+    // ★ 修改：不強迫使用者打括號，也不限制一定要是店家——備註裡不管是店家名還是買的東西，
+    //   都嘗試抓出來，讓悄悄話可以講「又去『星巴克』啦」或「『拿鐵』又來一筆啦」。
+    final topic = _extractTopicFromNote(tx.note);
+    String localQuote = LocalAiService.getRandomComment(
+      tx.category,
+      petKey: _currentPetKey,
+      merchant: topic.keyword,
+      isStore: topic.isStore,
+    );
     String commentToShow = "";
 
-    if (tx.note.isNotEmpty) {
+    // ★ 修改：寵物已經成功點名店家/東西時，上面就不用再重複貼一次原始備註了(不然會變成講兩次同一件事)；
+    //   只有完全沒抓到重點(topic.keyword 是 null，寵物講的是普通句子)，才把備註秀出來補充資訊。
+    if (tx.note.isNotEmpty && topic.keyword == null) {
       commentToShow = "${tx.note}\n$localQuote";
     } else {
       commentToShow = localQuote;

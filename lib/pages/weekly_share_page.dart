@@ -257,6 +257,39 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
     return sorted.take(3).toList();
   }
 
+  // ★★★ 新增：統計本週去最多次的店家，讓 AI 小結論可以直接點名店家，不是只講分類 ★★★
+  // 店家名稱是從備註裡的「【店家名稱】」格式解析出來的，跟後端 spending-insight 用同一套規則。
+  // 只有去過 2 次以上才算「有感」，只去過一次的不提供，避免隨便一筆消費就被拿出來講。
+  String? _getTopMerchant() {
+    final now = DateTime.now();
+    final start = DateTime(now.year, now.month, now.day)
+        .subtract(const Duration(days: 6));
+    final merchantPattern = RegExp(r'【([^】]+)】');
+
+    final Map<String, int> merchantCount = {};
+
+    for (final tx in widget.transactions) {
+      if (tx.type != TransactionType.expense) continue;
+
+      final txDate = DateTime(tx.date.year, tx.date.month, tx.date.day);
+      if (txDate.isBefore(start)) continue;
+
+      final match = merchantPattern.firstMatch(tx.note);
+      final merchant = match?.group(1)?.trim();
+      if (merchant == null || merchant.isEmpty || merchant == '未知店家') continue;
+
+      merchantCount[merchant] = (merchantCount[merchant] ?? 0) + 1;
+    }
+
+    if (merchantCount.isEmpty) return null;
+
+    final sorted = merchantCount.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+
+    if (sorted.first.value < 2) return null; // 只去過一次不夠有代表性
+    return '${sorted.first.key}:${sorted.first.value}'; // 格式：店家名稱:次數
+  }
+
   String _categoryEmoji(String category) {
     final text = category.toLowerCase();
 
@@ -478,6 +511,8 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
       final topCategories = _getTopThreeCategories()
           .map((e) => '${e.key}:${e.value.toStringAsFixed(0)}')
           .join(',');
+      // ★ 新增：本週去最多次的店家(格式 "店家名稱:次數")，沒有的話傳空字串
+      final topMerchant = _getTopMerchant() ?? '';
 
       final weeklyData = _buildWeeklyExpenseData()
           .map((e) => '${e.label}:${e.amount.toStringAsFixed(0)}')
@@ -497,6 +532,7 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
           'total_expense': totalExpense.toStringAsFixed(0),
           'top_category': topCategory,
           'top_categories': topCategories,
+          'top_merchant': topMerchant, // ★ 新增
           'weekly_data': weeklyData,
         },
       );

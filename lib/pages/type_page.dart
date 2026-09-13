@@ -20,6 +20,15 @@ class _TypePageState extends State<TypePage> {
 
   // ★★★ 新增：自訂圖示快取對照表 (把資料庫的字串轉回圖示) ★★★
   final Map<String, String> _categoryIconKeys = {};
+  final Map<String, int> _categoryUsageCounts = {}; // ★ 新增：每個分類的使用次數，用來排序
+
+  // ★ 新增：依使用次數由高到低排序，次數相同(或都沒用過)時退回原本的字母排序，行為維持一致、可預期
+  int _compareByUsage(String a, String b) {
+    final countA = _categoryUsageCounts[a] ?? 0;
+    final countB = _categoryUsageCounts[b] ?? 0;
+    if (countA != countB) return countB.compareTo(countA); // 次數高的排前面
+    return a.compareTo(b); // 次數一樣就照字母排序，維持穩定順序
+  }
 
   // ★★★ 新增：預設的子分類清單，確保沒記帳前也能選子分類 ★★★
   final Map<String, List<String>> _defaultExpenseSubs = {
@@ -114,6 +123,12 @@ class _TypePageState extends State<TypePage> {
     for (var row in rows) {
       if (row['icon_key'] != null && row['icon_key'].toString().isNotEmpty) {
         _categoryIconKeys[row['name'].toString()] = row['icon_key'].toString();
+      }
+      // ★ 新增：把 usage_count 也存進快取字典，讓分類清單可以依「這個人自己用得多不多」排序
+      final rawCount = row['usage_count'];
+      final parsedCount = rawCount is num ? rawCount.toInt() : int.tryParse(rawCount?.toString() ?? '') ?? 0;
+      if (parsedCount > 0) {
+        _categoryUsageCounts[row['name'].toString()] = parsedCount;
       }
     }
 
@@ -669,11 +684,12 @@ class _TypePageState extends State<TypePage> {
               mains.add(m);
             }
           }
-          orphans.sort();
           mains.addAll(orphans);
+          // ★ 修改：主分類整體依使用次數排序，讓使用者自己最常用的分類排最上面
+          mains.sort((a, b) => _compareByUsage(a, b));
 
           for (final k in grouped.keys) {
-            grouped[k]!.sort();
+            grouped[k]!.sort((a, b) => _compareByUsage(a, b));
           }
 
           return Column(

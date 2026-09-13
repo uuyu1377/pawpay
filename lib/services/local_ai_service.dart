@@ -772,7 +772,9 @@ class LocalAiService {
   };
 
   // --- 核心功能：隨機產生一句話 ---
-  static String getRandomComment(String categoryName, {String? petKey}) {
+  // ★ 新增：merchant 參數，如果有解析到店家名稱或買的東西，就在句子前面自然帶出，讓寵物講話更有感；
+  //   isStore 決定用哪種講法(去「地方」/ 買了「東西」)；沒有資訊(null/空字串/'未知店家')就完全維持原本的句子。
+  static String getRandomComment(String categoryName, {String? petKey, String? merchant, bool isStore = true}) {
     // 1. 從目前存在的 16 隻動物隨機挑一隻 (斷網時的備用邏輯)
     final random = Random();
     // ★★★ 修改：優先使用「當前上場的寵物」；沒傳或查無此寵物時，才退回隨機盲抽 ★★★
@@ -822,7 +824,14 @@ class LocalAiService {
     final animalQuotes = _quotes[animal] ?? _quotes['dog']!;
     final list = animalQuotes[type] ?? animalQuotes['default']!;
 
-    // 4. 隨機回傳一句
-    return list[random.nextInt(list.length)];
+    // 4. 隨機挑一句
+    final base = list[random.nextInt(list.length)];
+
+    // ★ 新增：有解析到內容才加，沒有就直接回傳原本的句子，行為跟改之前一樣
+    final String? m = merchant?.trim();
+    if (m != null && m.isNotEmpty && m != '未知店家') {
+      return isStore ? '又去$m啦，$base' : '$m又來一筆啦，$base';
+    }
+    return base;
   }
 }
