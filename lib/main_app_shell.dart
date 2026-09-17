@@ -581,7 +581,7 @@ class _MainAppShellState extends State<MainAppShell> {
               return _buildSummaryDialog(
                 ctx: ctx,
                 title: dialogTitle,
-                lottieAsset: 'assets/animations/Angry Dog.json',
+                petImage: _getCurrentPetEmotionImage('angry'),
                 total: total,
                 count: count,
                 dialogText: "氣噗噗！$displayDayText都沒看到主人來記帳，寵物餓肚子等很久了...明天不准忘記！",
@@ -598,7 +598,10 @@ class _MainAppShellState extends State<MainAppShell> {
     String currentDialogText = "正在拿著計算機，幫你結算$displayDayText的每一筆帳單，稍等我一下喔...";
     bool isAiLoading = true;
     bool hasCalledApi = false; // ★★★ 新增：API 防護鎖，確保只發送一次 ★★★
-    String lottieAsset = (count <= 2) ? 'assets/animations/Angry Dog.json' : 'assets/animations/Happy Dog.json';
+    final String summaryPetImage =
+    count <= 2
+        ? _getCurrentPetEmotionImage('angry')
+        : _getCurrentPetEmotionImage('happy');
 
     if (mounted) {
       showDialog(
@@ -623,7 +626,7 @@ class _MainAppShellState extends State<MainAppShell> {
                   return _buildSummaryDialog(
                     ctx: ctx,
                     title: dialogTitle,
-                    lottieAsset: lottieAsset,
+                    petImage: summaryPetImage,
                     total: total,
                     count: count,
                     dialogText: currentDialogText,
@@ -677,7 +680,7 @@ class _MainAppShellState extends State<MainAppShell> {
   Widget _buildSummaryDialog({
     required BuildContext ctx,
     required String title,
-    required String lottieAsset,
+    required String petImage,
     required double total,
     required int count,
     required String dialogText,
@@ -702,8 +705,11 @@ class _MainAppShellState extends State<MainAppShell> {
 
             // Lottie 動畫區
             SizedBox(
-              height: 150,
-              child: Lottie.asset(lottieAsset, fit: BoxFit.contain),
+              height: 190,
+              child: _FloatingPetImage(
+                imagePath: petImage,
+                size: 175,
+              ),
             ),
             const SizedBox(height: 16),
 
@@ -1407,9 +1413,13 @@ class _MainAppShellState extends State<MainAppShell> {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    _getCurrentPetEmoji(),
-                    style: const TextStyle(fontSize: 24),
+                  SizedBox(
+                    width: 42,
+                    height: 42,
+                    child: Image.asset(
+                      _getCurrentPetImage(),
+                      fit: BoxFit.contain,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -1656,10 +1666,13 @@ class _MainAppShellState extends State<MainAppShell> {
   }
 
   Future<void> _handleScanResult(String scannedText) async {
-    await _refreshCurrentPetKey(); // ★ 新增：確保動畫用的是目前上場的寵物
-    setState(() => _isAnalyzing = true);
-    _pendingEntryMethod = 'scan';
-    _pendingRawInput = scannedText;
+    await _refreshCurrentPetKey();
+
+    setState(() {
+      _pendingEntryMethod = 'scan';
+      _pendingRawInput = scannedText;
+      _isAnalyzing = true;
+    });
     _pendingCurrencyCode = await CurrencyService.instance.getActiveCurrencyCode(); // ★ 合併自朋友版(C)
 
     try {
@@ -2838,101 +2851,242 @@ class _MainAppShellState extends State<MainAppShell> {
 
     return null;
   }
-
   String _getCurrentPetEmoji() {
     switch (_currentPetKey) {
-      case 'dog': return '🐶';
-      case 'cat': return '🐱';
-      case 'parrot': return '🦜';
-      case 'sloth': return '🦥';
-      case 'fox': return '🦊';
-      case 'cute_dog': return '🐕';
-      case 'pomeranian': return '🐩';
-    // ★★★ 修改：原本這幾隻用的是骨頭/腳印/愛心/火箭/沙漏等「非動物」emoji，
-    //     改成對應的貓狗 emoji，視覺上一致一點。★★★
-      case 'norm_dog': return '🦮';
-      case 'wagging_dog': return '🐕';
-      case 'lovely_cat': return '😻';
-      case 'blue_cat': return '😼';
-      case 'rocket_cat': return '😸';
-      case 'loader_cat': return '🐈';
-      case 'bear': return '🐻';
-      case 'bee': return '🐝';
-      case 'giraffe': return '🦒';
-      default: return '🐶';
+      case 'dog':
+        return '🐶';
+      case 'cat':
+        return '🐱';
+      case 'parrot':
+        return '🦜';
+      case 'sloth':
+        return '🦥';
+      case 'fox':
+        return '🦊';
+      case 'cute_dog':
+        return '🐕';
+      case 'pomeranian':
+        return '🐩';
+      case 'norm_dog':
+        return '🦮';
+      case 'wagging_dog':
+        return '🐕';
+      case 'lovely_cat':
+        return '😻';
+      case 'blue_cat':
+        return '😼';
+      case 'rocket_cat':
+        return '😸';
+      case 'loader_cat':
+        return '🐈';
+      case 'bear':
+        return '🐻';
+      case 'bee':
+        return '🐝';
+      case 'giraffe':
+        return '🦒';
+      default:
+        return '🐶';
+    }
+  }
+  // ★ 目前上場寵物的一般 PNG
+  String _getCurrentPetImage() {
+    switch (_currentPetKey) {
+      case 'dog':
+        return 'assets/pets/dog.png';
+      case 'cat':
+        return 'assets/pets/cat.png';
+      case 'parrot':
+        return 'assets/pets/parrot.png';
+      case 'sloth':
+        return 'assets/pets/sloth.png';
+      case 'fox':
+        return 'assets/pets/fox.png';
+
+      case 'cute_dog':
+        return 'assets/pets/shiba.png';
+      case 'pomeranian':
+        return 'assets/pets/pomeranian.png';
+      case 'norm_dog':
+        return 'assets/pets/calm_dog.png';
+      case 'wagging_dog':
+        return 'assets/pets/clingy_dog.png';
+
+      case 'lovely_cat':
+        return 'assets/pets/love_cat.png';
+      case 'blue_cat':
+        return 'assets/pets/work_cat.png';
+      case 'rocket_cat':
+        return 'assets/pets/rocket_cat.png';
+      case 'loader_cat':
+        return 'assets/pets/waiting_cat.png';
+
+      case 'bear':
+        return 'assets/pets/bear.png';
+      case 'bee':
+        return 'assets/pets/bee.png';
+      case 'giraffe':
+        return 'assets/pets/giraffe.png';
+
+      default:
+        return 'assets/pets/dog.png';
+    }
+  }
+
+
+// ★ 目前上場寵物的 happy / angry PNG
+  String _getCurrentPetEmotionImage(String emotion) {
+    final suffix = emotion == 'angry' ? 'angry' : 'happy';
+
+    switch (_currentPetKey) {
+      case 'dog':
+        return 'assets/pets/dog_$suffix.png';
+      case 'cat':
+        return 'assets/pets/cat_$suffix.png';
+      case 'parrot':
+        return 'assets/pets/parrot_$suffix.png';
+      case 'sloth':
+        return 'assets/pets/sloth_$suffix.png';
+      case 'fox':
+        return 'assets/pets/fox_$suffix.png';
+
+      case 'cute_dog':
+        return 'assets/pets/shiba_$suffix.png';
+      case 'pomeranian':
+        return 'assets/pets/pomeranian_$suffix.png';
+      case 'norm_dog':
+        return 'assets/pets/calm_dog_$suffix.png';
+      case 'wagging_dog':
+        return 'assets/pets/clingy_dog_$suffix.png';
+
+      case 'lovely_cat':
+        return 'assets/pets/love_cat_$suffix.png';
+      case 'blue_cat':
+        return 'assets/pets/work_cat_$suffix.png';
+      case 'rocket_cat':
+        return 'assets/pets/rocket_cat_$suffix.png';
+      case 'loader_cat':
+        return 'assets/pets/waiting_cat_$suffix.png';
+
+      case 'bear':
+        return 'assets/pets/bear_$suffix.png';
+      case 'bee':
+        return 'assets/pets/bee_$suffix.png';
+      case 'giraffe':
+        return 'assets/pets/giraffe_$suffix.png';
+
+      default:
+        return 'assets/pets/dog_$suffix.png';
+    }
+  }
+  String _getCurrentPetInvoiceImage() {
+    switch (_currentPetKey) {
+      case 'dog':
+        return 'assets/pets/dog_invoice.png';
+
+      case 'cat':
+        return 'assets/pets/cat_invoice.png';
+
+      case 'parrot':
+        return 'assets/pets/parrot_invoice.png';
+
+      case 'sloth':
+        return 'assets/pets/sloth_invoice.png';
+
+      case 'fox':
+        return 'assets/pets/fox_invoice.png';
+
+      case 'cute_dog':
+        return 'assets/pets/shiba_invoice.png';
+
+      case 'pomeranian':
+        return 'assets/pets/pomeranian_invoice.png';
+
+      case 'norm_dog':
+        return 'assets/pets/calm_dog_invoice.png';
+
+      case 'wagging_dog':
+        return 'assets/pets/clingy_dog_invoice.png';
+
+      case 'lovely_cat':
+        return 'assets/pets/love_cat_invoice.png';
+
+      case 'blue_cat':
+        return 'assets/pets/work_cat_invoice.png';
+
+      case 'rocket_cat':
+        return 'assets/pets/rocket_cat_invoice.png';
+
+      case 'loader_cat':
+        return 'assets/pets/waiting_cat_invoice.png';
+
+      case 'bear':
+        return 'assets/pets/bear_invoice.png';
+
+      case 'bee':
+        return 'assets/pets/bee_invoice.png';
+
+      case 'giraffe':
+        return 'assets/pets/giraffe_invoice.png';
+
+      default:
+        return 'assets/pets/dog_invoice.png';
     }
   }
 
   Map<String, String> _getPetAnimationConfig() {
-    String defaultAnimAsset = 'assets/animations/Dog.json';
+    // ★ 只要是 AI 分析讀取畫面，一律使用 invoice 版本寵物圖
+    final petImage = _getCurrentPetInvoiceImage();
 
-    // 精準對應 16 隻寵物的動畫檔案
-    switch (_currentPetKey) {
-      case 'dog': defaultAnimAsset = 'assets/animations/Dog.json'; break;
-      case 'cat': defaultAnimAsset = 'assets/animations/Cat.json'; break;
-      case 'fox': defaultAnimAsset = 'assets/animations/Fox.json'; break;
-      case 'parrot': defaultAnimAsset = 'assets/animations/Parrot.json'; break;
-      case 'sloth': defaultAnimAsset = 'assets/animations/Sloth.json'; break;
-      case 'cute_dog': defaultAnimAsset = 'assets/animations/Cute Doggy.json'; break;
-      case 'pomeranian': defaultAnimAsset = 'assets/animations/Pomeranian Dog.json'; break;
-      case 'norm_dog': defaultAnimAsset = 'assets/animations/Norm The Dog.json'; break;
-      case 'wagging_dog': defaultAnimAsset = 'assets/animations/Wagging Dog.json'; break;
-      case 'lovely_cat': defaultAnimAsset = 'assets/animations/Lovely cats.json'; break;
-      case 'blue_cat': defaultAnimAsset = 'assets/animations/Blue Working Cat.json'; break;
-      case 'rocket_cat': defaultAnimAsset = 'assets/animations/Cat in a rocket.json'; break;
-      case 'loader_cat': defaultAnimAsset = 'assets/animations/Loader cat.json'; break;
-      case 'bear': defaultAnimAsset = 'assets/animations/Bear Like.json'; break;
-      case 'bee': defaultAnimAsset = 'assets/animations/Loading Flying Beee.json'; break;
-      case 'giraffe': defaultAnimAsset = 'assets/animations/Petite girafe.json'; break;
-      default: defaultAnimAsset = 'assets/animations/Dog.json'; break;
-    }
+    debugPrint('🐾 currentPetKey = $_currentPetKey');
+    debugPrint('🧾 pendingEntryMethod = $_pendingEntryMethod');
+    debugPrint('🖼️ petImage = $petImage');
 
-    // ★★★ 最高優先級：每日第一筆開張大吉 ★★★
+    // 今天第一筆
     if (_isFirstTransactionToday) {
       return {
-        'asset': defaultAnimAsset,
-        'text': '早安主人！今天第一筆帳幫你開張！'
+        'asset': petImage,
+        'text': '早安主人！今天第一筆帳幫你開張！',
       };
     }
 
-    // 優先級 2：深夜時段 23:00~04:59
+    // 深夜
     final hour = DateTime.now().hour;
     if (hour >= 23 || hour < 5) {
       return {
-        'asset': defaultAnimAsset,
-        'text': '這麼晚還在花錢，勉強幫你記著。'
+        'asset': petImage,
+        'text': '這麼晚還在花錢，勉強幫你記著。',
       };
     }
 
-    // ★★★ 優先級 3 與 4 修正：靠 [MODE] 標籤百分百精準判斷 ★★★
+    // 掃描發票
     if (_pendingEntryMethod == 'scan') {
-      // 如果回傳的字串包含 E_INVOICE_QR，代表它沒有呼叫 OCR，是直接抓出條碼
-      if (_pendingRawInput != null && _pendingRawInput!.contains('[MODE] E_INVOICE_QR')) {
+      if (_pendingRawInput != null &&
+          _pendingRawInput!.contains('[MODE] E_INVOICE_QR')) {
         return {
-          'asset': defaultAnimAsset,
-          'text': '呵呵，這種簡單的條碼，你的錢包沒有秘密...'
-        };
-      } else {
-        // 否則，不管是傳統還是電子，只要是被相機 "拍照" (回傳了明細長文字)
-        return {
-          'asset': defaultAnimAsset,
-          'text': '這張明細好複雜...慢慢算...'
+          'asset': petImage,
+          'text': '正在讀取電子發票...',
         };
       }
-    }
 
-    // 優先級 5：語音輸入統一
-    if (_pendingEntryMethod == 'voice') {
       return {
-        'asset': defaultAnimAsset,
-        'text': '聽到了！正在幫你翻譯成帳單...'
+        'asset': petImage,
+        'text': '正在讀取發票內容...',
       };
     }
 
-    // 防呆預設值
+    // 語音記帳
+    if (_pendingEntryMethod == 'voice') {
+      return {
+        'asset': petImage,
+        'text': '正在整理語音記帳內容...',
+      };
+    }
+
+    // 其他 AI 分析
     return {
-      'asset': defaultAnimAsset,
-      'text': '寵物幫你算錢中，請稍候...'
+      'asset': petImage,
+      'text': '正在分析發票資料...',
     };
   }
 
@@ -3028,9 +3182,8 @@ class _MainAppShellState extends State<MainAppShell> {
                   color: Colors.black.withOpacity(0.85), // 深色半透明遮罩
                   child: Center(
                     child: _FeedingAnimationOverlay(
-                      lottieAsset: animConfig['asset']!,
-                      invoiceAsset: _invoiceIconPath,
-                      loadingText: animConfig['text']!, // 傳入動態文字
+                      petImage: animConfig['asset']!,
+                      loadingText: animConfig['text']!,
                     ),
                   ),
                 );
@@ -3071,32 +3224,50 @@ class _MainAppShellState extends State<MainAppShell> {
 // ==============================================================
 // ★★★ 保留你的：循環播放發票飛入的動畫 Overlay ★★★
 // ==============================================================
+
+
+
 class _FeedingAnimationOverlay extends StatefulWidget {
-  final String lottieAsset;
-  final String invoiceAsset;
-  final String loadingText; // ★★★ 新增：接收動態文字 ★★★
+  final String petImage;
+  final String loadingText;
 
   const _FeedingAnimationOverlay({
-    required this.lottieAsset,
-    required this.invoiceAsset,
-    required this.loadingText, // ★★★ 新增：接收動態文字 ★★★
+    required this.petImage,
+    required this.loadingText,
   });
 
   @override
-  State<_FeedingAnimationOverlay> createState() => _FeedingAnimationOverlayState();
+  State<_FeedingAnimationOverlay> createState() =>
+      _FeedingAnimationOverlayState();
 }
 
-class _FeedingAnimationOverlayState extends State<_FeedingAnimationOverlay> with SingleTickerProviderStateMixin {
+class _FeedingAnimationOverlayState
+    extends State<_FeedingAnimationOverlay>
+    with SingleTickerProviderStateMixin {
+
   late AnimationController _controller;
+  late Animation<double> _floatAnimation;
 
   @override
   void initState() {
     super.initState();
-    // 設定動畫控制器，循環播放 (Duration 為發票飛一次的時間)
+
     _controller = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2), // 2秒飛一次
-    )..repeat(); // 讓它一直重複
+      duration: const Duration(milliseconds: 1100),
+    );
+
+    _floatAnimation = Tween<double>(
+      begin: -12,
+      end: 12,
+    ).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _controller.repeat(reverse: true);
   }
 
   @override
@@ -3113,65 +3284,120 @@ class _FeedingAnimationOverlayState extends State<_FeedingAnimationOverlay> with
         SizedBox(
           width: 250,
           height: 250,
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              // 1. 底層：Lottie 動物動畫
-              if (widget.lottieAsset.isNotEmpty)
-                Positioned.fill(
-                  child: Lottie.asset(
-                    widget.lottieAsset,
-                    fit: BoxFit.contain,
+          child: Center(
+            child: AnimatedBuilder(
+              animation: _floatAnimation,
+              builder: (context, child) {
+                return Transform.translate(
+                  offset: Offset(
+                    0,
+                    _floatAnimation.value,
                   ),
-                )
-              else
-                const CircularProgressIndicator(color: Colors.white),
-
-              // 2. 上層：循環飛入的發票
-              AnimatedBuilder(
-                animation: _controller,
-                builder: (context, child) {
-                  // 計算動畫值：從底端 (-100) 飛到嘴邊 (60)
-                  // 使用 Curves.easeInOut 讓飛行更順暢
-                  final curvedValue = Curves.easeInOut.transform(_controller.value);
-                  final bottomPos = -100 + (160 * curvedValue);
-
-                  // 在快要結束時 (0.8~1.0) 讓發票變透明，看起來像被吃掉
-                  final opacity = _controller.value > 0.8 ? (1.0 - _controller.value) * 5 : 1.0;
-
-                  return Positioned(
-                    bottom: bottomPos,
-                    child: Opacity(
-                      opacity: opacity.clamp(0.0, 1.0),
-                      child: child!,
-                    ),
-                  );
-                },
-                child: Image.asset(
-                  widget.invoiceAsset,
-                  width: 60,
-                  height: 60,
-                ),
+                  child: child,
+                );
+              },
+              child: Image.asset(
+                widget.petImage,
+                width: 190,
+                height: 190,
+                fit: BoxFit.contain,
               ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 16),
-        // ★★★ 修正：改用 widget.loadingText 動態顯示文字，並置中縮小字體 ★★★
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20.0),
-          child: Text(
-            widget.loadingText,
-            textAlign: TextAlign.center, // 讓多行文字置中，看起來更整齊
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 16, // 把字體從 18 縮小到 16
-              fontWeight: FontWeight.bold,
-              decoration: TextDecoration.none, // 關鍵：移除黃色底線
             ),
           ),
         ),
+
+        const SizedBox(height: 14),
+
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Text(
+            widget.loadingText,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              decoration: TextDecoration.none,
+            ),
+          ),
+        ),
+
+        const SizedBox(height: 12),
+
+        const SizedBox(
+          width: 22,
+          height: 22,
+          child: CircularProgressIndicator(
+            strokeWidth: 2.4,
+            color: Colors.white,
+          ),
+        ),
       ],
+    );
+  }
+}
+class _FloatingPetImage extends StatefulWidget {
+  final String imagePath;
+  final double size;
+
+  const _FloatingPetImage({
+    required this.imagePath,
+    this.size = 175,
+  });
+
+  @override
+  State<_FloatingPetImage> createState() => _FloatingPetImageState();
+}
+
+class _FloatingPetImageState extends State<_FloatingPetImage>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
+  late Animation<double> _floatAnimation;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+
+    _floatAnimation = Tween<double>(
+      begin: -8,
+      end: 8,
+    ).animate(
+      CurvedAnimation(
+        parent: _controller,
+        curve: Curves.easeInOut,
+      ),
+    );
+
+    _controller.repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _floatAnimation,
+      builder: (context, child) {
+        return Transform.translate(
+          offset: Offset(0, _floatAnimation.value),
+          child: child,
+        );
+      },
+      child: Image.asset(
+        widget.imagePath,
+        width: widget.size,
+        height: widget.size,
+        fit: BoxFit.contain,
+      ),
     );
   }
 }

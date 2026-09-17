@@ -671,7 +671,7 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
 
     final boundary = context.findRenderObject() as RenderRepaintBoundary;
 
-    final image = await boundary.toImage(pixelRatio: 3.0);
+    final image = await boundary.toImage(pixelRatio: 2.0);
 
     final byteData = await image.toByteData(
       format: ui.ImageByteFormat.png,
@@ -780,36 +780,19 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
     final totalExpense = _getWeeklyTotalExpense();
     final topCategory = _getTopCategory();
     final topCategoryAmount = _getTopCategoryAmount();
-    final topThreeCategories = _getTopThreeCategories();
-
-    // ★ 任務2：本月理財小結數字（全部程式算）
-    final double monthIncome = _sumMonthByType(TransactionType.income);
-    final double monthExpense = _sumMonthByType(TransactionType.expense);
-    final double lastMonthExpense = _sumMonthByType(TransactionType.expense, monthOffset: -1);
-    final double monthSaved = monthIncome - monthExpense;
-    final String monthTopCat = _monthTopCategory();
-    final Map<String, double> monthCatTotals = _monthCategoryTotals();
-    final int budgetCount = _categoryBudgets.length;
-    int budgetKept = 0;
-    _categoryBudgets.forEach((cat, limit) {
-      final s = monthCatTotals[cat] ?? 0;
-      if (s <= limit) budgetKept++;
-    });
-    final double vsLast = monthExpense - lastMonthExpense;
-    final String vsLastText = vsLast > 0
-        ? '多花 NT\$ ${NumberFormat('#,##0').format(vsLast)}'
-        : (vsLast < 0 ? '少花 NT\$ ${NumberFormat('#,##0').format(-vsLast)}' : '和上月持平');
 
     final now = DateTime.now();
     final start = now.subtract(const Duration(days: 6));
+
     final dateRange =
-        '${DateFormat('MM/dd').format(start)} - ${DateFormat('MM/dd').format(now)}';
+        '${DateFormat('MM/dd').format(start)} - '
+        '${DateFormat('MM/dd').format(now)}';
 
     final maxAmount = weeklyData.isEmpty
         ? 100.0
         : weeklyData
-        .map((e) => e.amount)
-        .fold<double>(0, (a, b) => a > b ? a : b);
+            .map((e) => e.amount)
+            .fold<double>(0, (a, b) => a > b ? a : b);
 
     final chartMaxY = maxAmount <= 0 ? 100.0 : maxAmount * 1.25;
 
@@ -826,534 +809,297 @@ class _WeeklySharePageState extends State<WeeklySharePage> {
     return RepaintBoundary(
       key: _shareCardKey,
       child: Container(
-        width: 330,
-        padding: const EdgeInsets.all(16),
+        width: 300,
+        padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
           color: _cardBackgroundColor(),
-          borderRadius: BorderRadius.circular(32),
+          borderRadius: BorderRadius.circular(24),
           border: Border.all(
             color: _cardBorderColor(),
-            width: 1.5,
+            width: 1.2,
           ),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withOpacity(
-                _selectedTemplate == ShareCardTemplate.nightBlue ? 0.22 : 0.08,
+                _selectedTemplate == ShareCardTemplate.nightBlue
+                    ? 0.18
+                    : 0.06,
               ),
-              blurRadius: 24,
-              offset: const Offset(0, 12),
+              blurRadius: 18,
+              offset: const Offset(0, 8),
             ),
           ],
         ),
-        child: Stack(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Positioned(
-              top: 8,
-              right: 18,
-              child: _buildDecorationDot(
-                size: 38,
-                color: _highlightColor(),
-              ),
-            ),
-            Positioned(
-              top: 72,
-              right: 4,
-              child: _buildDecorationDot(
-                size: 18,
-                color: _highlightColor(),
-              ),
-            ),
-            Positioned(
-              bottom: 140,
-              left: 0,
-              child: _buildDecorationDot(
-                size: 24,
-                color: _highlightColor(),
-              ),
-            ),
-            DefaultTextStyle(
-              style: TextStyle(
-                color: _mainTextColor(),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 46,
-                        height: 46,
-                        padding: const EdgeInsets.all(2),
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(
-                            _selectedTemplate == ShareCardTemplate.nightBlue
-                                ? 0.10
-                                : 0.75,
-                          ),
-                          shape: BoxShape.circle,
+            Row(
+              children: [
+                Container(
+                  width: 42,
+                  height: 42,
+                  padding: const EdgeInsets.all(3),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(
+                      _selectedTemplate == ShareCardTemplate.nightBlue
+                          ? 0.10
+                          : 0.75,
+                    ),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Image.asset(
+                    _petImagePath(),
+                    fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Center(
+                        child: Text(
+                          _petEmoji(),
+                          style: const TextStyle(fontSize: 22),
                         ),
-                        child: Image.asset(
-                          _petImagePath(),
-                          fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Text(
-                              _petEmoji(),
-                              style: const TextStyle(fontSize: 24),
-                            );
-                          },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$_nickname 的錢包週記',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w900,
+                          color: _mainTextColor(),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              '$_nickname 的錢包週記',
-                              style: TextStyle(
-                                fontSize: 19,
-                                fontWeight: FontWeight.w900,
-                                color: _mainTextColor(),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '$dateRange ｜ ${_petName()}幫你整理好了',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: _subTextColor(),
-                              ),
-                            ),
-                          ],
+                      const SizedBox(height: 2),
+                      Text(
+                        dateRange,
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: _subTextColor(),
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 18),
-
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 16,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _highlightColor().withOpacity(
-                        _selectedTemplate == ShareCardTemplate.nightBlue
-                            ? 0.18
-                            : 0.14,
-                      ),
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '本週總支出',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: _subTextColor(),
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          'NT\$ ${NumberFormat('#,##0').format(totalExpense)}',
-                          style: TextStyle(
-                            fontSize: 34,
-                            fontWeight: FontWeight.w900,
-                            color: _mainTextColor(),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            _buildMiniTag(
-                              '${_categoryEmoji(topCategory)} 本週花費王：$topCategory',
-                            ),
-                            _buildMiniTag(
-                              '占本週 $topCategoryPercent%',
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 20),
-
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 15,
+                vertical: 12,
+              ),
+              decoration: BoxDecoration(
+                color: _highlightColor().withOpacity(
+                  _selectedTemplate == ShareCardTemplate.nightBlue
+                      ? 0.16
+                      : 0.12,
+                ),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    '一週支出心電圖',
+                    '本週總支出',
                     style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                      color: _mainTextColor(),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '哪一天錢包最有感？線條都幫你畫出來了',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 11,
                       color: _subTextColor(),
+                      fontWeight: FontWeight.w700,
                     ),
                   ),
-                  const SizedBox(height: 14),
-
-                  SizedBox(
-                    height: 170,
-                    child: LineChart(
-                      LineChartData(
-                        minY: 0,
-                        maxY: chartMaxY,
-                        lineTouchData: LineTouchData(
-                          enabled: true,
-                          touchTooltipData: LineTouchTooltipData(
-                            getTooltipItems: (spots) {
-                              return spots.map((spot) {
-                                final index = spot.x.toInt();
-                                final label = index >= 0 &&
-                                    index < weeklyData.length
-                                    ? weeklyData[index].label
-                                    : '';
-                                return LineTooltipItem(
-                                  '$label\nNT\$ ${NumberFormat('#,##0').format(spot.y)}',
-                                  TextStyle(
-                                    color: _mainTextColor(),
-                                    fontWeight: FontWeight.w800,
-                                  ),
-                                );
-                              }).toList();
-                            },
-                          ),
-                        ),
-                        gridData: FlGridData(
-                          show: true,
-                          drawVerticalLine: false,
-                          getDrawingHorizontalLine: (value) {
-                            return FlLine(
-                              color: _subTextColor().withOpacity(0.16),
-                              strokeWidth: 1,
-                            );
-                          },
-                        ),
-                        borderData: FlBorderData(show: false),
-                        titlesData: FlTitlesData(
-                          topTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false),
-                          ),
-                          rightTitles: const AxisTitles(
-                            sideTitles: SideTitles(showTitles: false),
-                          ),
-                          leftTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              reservedSize: 42,
-                              getTitlesWidget: (value, meta) {
-                                return Text(
-                                  value.toInt().toString(),
-                                  style: TextStyle(
-                                    fontSize: 9,
-                                    color: _subTextColor(),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          bottomTitles: AxisTitles(
-                            sideTitles: SideTitles(
-                              showTitles: true,
-                              reservedSize: 28,
-                              interval: 1,
-                              getTitlesWidget: (value, meta) {
-                                final index = value.toInt();
-
-                                if (index < 0 || index >= weeklyData.length) {
-                                  return const SizedBox.shrink();
-                                }
-
-                                return Padding(
-                                  padding: const EdgeInsets.only(top: 6),
-                                  child: Text(
-                                    weeklyData[index].label,
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      color: _subTextColor(),
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                        ),
-                        lineBarsData: [
-                          LineChartBarData(
-                            isCurved: true,
-                            barWidth: 4,
-                            color: _highlightColor(),
-                            belowBarData: BarAreaData(
-                              show: true,
-                              color: _highlightColor().withOpacity(0.16),
-                            ),
-                            dotData: FlDotData(
-                              show: true,
-                              getDotPainter: (spot, percent, barData, index) {
-                                return FlDotCirclePainter(
-                                  radius: 4.5,
-                                  color: _highlightColor(),
-                                  strokeWidth: 2,
-                                  strokeColor: _cardBackgroundColor(),
-                                );
-                              },
-                            ),
-                            spots: List.generate(
-                              weeklyData.length,
-                                  (index) {
-                                return FlSpot(
-                                  index.toDouble(),
-                                  weeklyData[index].amount,
-                                );
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 18),
-
+                  const SizedBox(height: 2),
                   Text(
-                    '花費排行榜',
+                    'NT\$ ${NumberFormat('#,##0').format(totalExpense)}',
                     style: TextStyle(
-                      fontSize: 17,
+                      fontSize: 29,
                       fontWeight: FontWeight.w900,
                       color: _mainTextColor(),
                     ),
                   ),
-                  const SizedBox(height: 10),
-
-                  if (topThreeCategories.isEmpty)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(16),
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(
-                          _selectedTemplate == ShareCardTemplate.nightBlue
-                              ? 0.08
-                              : 0.7,
-                        ),
-                        borderRadius: BorderRadius.circular(20),
+                  const SizedBox(height: 7),
+                  Row(
+                    children: [
+                      Text(
+                        _categoryEmoji(topCategory),
+                        style: const TextStyle(fontSize: 16),
                       ),
-                      child: Text(
-                        '這週還沒有支出資料唷',
-                        style: TextStyle(
-                          color: _subTextColor(),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    )
-                  else
-                    ...topThreeCategories.asMap().entries.map((entry) {
-                      final rank = entry.key + 1;
-                      final item = entry.value;
-                      final emoji = _categoryEmoji(item.key);
-
-                      return Container(
-                        margin: const EdgeInsets.only(bottom: 9),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withOpacity(
-                            _selectedTemplate == ShareCardTemplate.nightBlue
-                                ? 0.08
-                                : 0.72,
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          '$topCategory · $topCategoryPercent%',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: _subTextColor(),
                           ),
-                          borderRadius: BorderRadius.circular(20),
                         ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 26,
-                              height: 26,
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: _highlightColor().withOpacity(0.18),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Text(
-                                '$rank',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w900,
-                                  color: _highlightColor(),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              emoji,
-                              style: const TextStyle(fontSize: 20),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                item.key,
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w800,
-                                  color: _mainTextColor(),
-                                ),
-                              ),
-                            ),
-                            Text(
-                              'NT\$ ${NumberFormat('#,##0').format(item.value)}',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w900,
-                                color: _mainTextColor(),
-                              ),
-                            ),
-                          ],
-                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 14),
+            Text(
+              '本週消費趨勢',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w900,
+                color: _mainTextColor(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: 105,
+              child: LineChart(
+                LineChartData(
+                  minY: 0,
+                  maxY: chartMaxY,
+                  lineTouchData: const LineTouchData(enabled: false),
+                  gridData: FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                    getDrawingHorizontalLine: (value) {
+                      return FlLine(
+                        color: _subTextColor().withOpacity(0.10),
+                        strokeWidth: 1,
                       );
-                    }),
-
-                  const SizedBox(height: 18),
-                  // ★ 任務2：本月理財小結（併進週分享圖，不另開新卡）
-                  Text(
-                    '本月理財小結',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w900,
-                      color: _mainTextColor(),
+                    },
+                  ),
+                  borderData: FlBorderData(show: false),
+                  titlesData: FlTitlesData(
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    leftTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 22,
+                        interval: 1,
+                        getTitlesWidget: (value, meta) {
+                          final index = value.toInt();
+                          if (index < 0 || index >= weeklyData.length) {
+                            return const SizedBox.shrink();
+                          }
+                          final label = weeklyData[index].label;
+                          final shortLabel =
+                              label.length >= 5 ? label.substring(3) : label;
+                          return Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Text(
+                              shortLabel,
+                              style: TextStyle(
+                                fontSize: 8,
+                                color: _subTextColor(),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(
-                        _selectedTemplate == ShareCardTemplate.nightBlue
-                            ? 0.10
-                            : 0.82,
+                  lineBarsData: [
+                    LineChartBarData(
+                      isCurved: true,
+                      barWidth: 3,
+                      color: _highlightColor(),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: _highlightColor().withOpacity(0.10),
                       ),
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildMonthStat(
-                                '本月收入',
-                                'NT\$ ${NumberFormat('#,##0').format(monthIncome)}',
-                              ),
-                            ),
-                            Expanded(
-                              child: _buildMonthStat(
-                                '本月支出',
-                                'NT\$ ${NumberFormat('#,##0').format(monthExpense)}',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildMonthStat(
-                                monthSaved >= 0 ? '本月存下' : '本月透支',
-                                'NT\$ ${NumberFormat('#,##0').format(monthSaved.abs())}',
-                              ),
-                            ),
-                            Expanded(
-                              child: _buildMonthStat('最會花', monthTopCat),
-                            ),
-                          ],
-                        ),
-                        if (budgetCount > 0) ...[
-                          const SizedBox(height: 12),
-                          _buildMonthStat('分類預算守住', '$budgetKept / $budgetCount 項'),
-                        ],
-                        const SizedBox(height: 12),
-                        _buildMonthStat('比上月', vsLastText),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 14),
-
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(
-                        _selectedTemplate == ShareCardTemplate.nightBlue
-                            ? 0.10
-                            : 0.82,
+                      dotData: FlDotData(
+                        show: true,
+                        getDotPainter: (spot, percent, barData, index) {
+                          return FlDotCirclePainter(
+                            radius: 3,
+                            color: _highlightColor(),
+                            strokeWidth: 1.5,
+                            strokeColor: _cardBackgroundColor(),
+                          );
+                        },
                       ),
-                      borderRadius: BorderRadius.circular(24),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 38,
-                          height: 38,
-                          child: Image.asset(
-                            _petImagePath(),
-                            fit: BoxFit.contain,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Center(
-                                child: Text(
-                                  _petEmoji(),
-                                  style: const TextStyle(fontSize: 22),
-                                ),
-                              );
-                            },
-                          ),
+                      spots: List.generate(
+                        weeklyData.length,
+                        (index) => FlSpot(
+                          index.toDouble(),
+                          weeklyData[index].amount,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 13),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(11),
+              decoration: BoxDecoration(
+                color: Colors.white.withOpacity(
+                  _selectedTemplate == ShareCardTemplate.nightBlue
+                      ? 0.08
+                      : 0.72,
+                ),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 32,
+                    height: 32,
+                    child: Image.asset(
+                      _petImagePath(),
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Center(
                           child: Text(
-                            _isAiLoading ? '正在幫你生成可愛小結論...' : summaryText,
-                            style: TextStyle(
-                              fontSize: 14,
-                              height: 1.6,
-                              color: _mainTextColor(),
-                              fontWeight: FontWeight.w800,
-                            ),
+                            _petEmoji(),
+                            style: const TextStyle(fontSize: 20),
                           ),
-                        ),
-                      ],
+                        );
+                      },
                     ),
                   ),
-
-                  const SizedBox(height: 16),
-
-                  Center(
+                  const SizedBox(width: 8),
+                  Expanded(
                     child: Text(
-                      'Share your weekly money mood ✨',
+                      _isAiLoading ? '正在整理本週錢包...' : summaryText,
+                      maxLines: 3,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontSize: 11,
-                        color: _subTextColor(),
+                        height: 1.4,
+                        color: _mainTextColor(),
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
                 ],
+              ),
+            ),
+            const SizedBox(height: 11),
+            Center(
+              child: Text(
+                'PAWPAY · Weekly Money Mood',
+                style: TextStyle(
+                  fontSize: 9,
+                  color: _subTextColor(),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ],
