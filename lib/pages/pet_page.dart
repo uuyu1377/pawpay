@@ -236,13 +236,24 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
     setState(() => _isLoading = true);
     try {
       final api = GameApiService.instance;
-      // ★ 合併自朋友版：改讀獎勵錢包的「寵物代幣」，不再用大富翁 money。
-      final wallet = await api.fetchRewardWallet();
+
+// ★ 取得目前真正登入的 user_id
+      final currentUserId = await api.resolveCurrentUserId();
+
+      debugPrint('🐾 PetPage currentUserId = $currentUserId');
+
+      final wallet = await api.fetchRewardWallet(
+        userId: currentUserId,
+      );
+
       List<Map<String, dynamic>> pets = const [];
+
       try {
-        pets = await api.fetchPets();
-      } catch (_) {
-        // 8000 API 未啟動時，仍可顯示由 5000 API 自選券解鎖的寵物。
+        pets = await api.fetchPets(
+          userId: currentUserId,
+        );
+      } catch (e) {
+        debugPrint('❌ fetchPets 失敗：$e');
       }
       final choiceState = await api.fetchPetChoiceState();
       if (!mounted) return;
@@ -318,71 +329,140 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       _feedingPetKey = null;
     });
   }
-
   Future<void> _feedPet(Map<String, dynamic> food) async {
     if (!_currentPetUnlocked) return;
+
     final price = food['price'] as int;
+
     if (_petTokens < price) {
       _showMsg('寵物代幣不足！');
       return;
     }
+
     final petData = _currentPetData!;
+    final currentUserId =
+    await GameApiService.instance.resolveCurrentUserId();
+
+    debugPrint('🐾 餵食 userId = $currentUserId');
     Map<String, dynamic>? spendResult;
+
     try {
-      // ★ 合併自朋友版：先扣「寵物代幣」，不再扣大富翁地產資金。
+      debugPrint('================ 餵食開始 ================');
+      debugPrint('🐾 petKey = $_currentPetKey');
+      debugPrint('🐾 petData = $petData');
+      debugPrint('🍖 food = $food');
+      debugPrint('💰 price = $price');
+
+      // ① 先測 5000
+      debugPrint('➡️ 呼叫 spendGameReward');
+
       spendResult = await GameApiService.instance.spendGameReward(
         rewardType: 'pet_tokens',
         amount: price,
         source: 'pet_food',
       );
+
+      debugPrint('✅ spendGameReward 成功：$spendResult');
+
+      // 自選券寵物
       if (petData['from_choice_ticket'] == true) {
         final rawGain = food['isMystery'] == true
             ? 0.18
             : (food['gain'] as num).toDouble();
+
         if (!mounted) return;
+
         setState(() {
-          _petTokens = int.tryParse(spendResult?['pet_tokens']?.toString() ?? '') ?? (_petTokens - price);
+          _petTokens =
+              int.tryParse(spendResult?['pet_tokens']?.toString() ?? '') ??
+                  (_petTokens - price);
+
           petData['satiety'] =
-              ((_toDouble(petData['satiety'], fallback: 0.45) + rawGain).clamp(0.0, 1.0) as num)
+              ((_toDouble(
+                petData['satiety'],
+                fallback: 0.45,
+              ) + rawGain).clamp(0.0, 1.0) as num)
                   .toDouble();
         });
+
         _showMsg('餵食成功！（寵物代幣 -$price）');
+
         await _playFeedAnimation();
         return;
       }
-      // 原本 8000 的寵物 API 只負責飽食度；price=0 避免再扣一次 money。
+
+      // ② 再測 8000
+      debugPrint('➡️ 呼叫 feedPet');
+      debugPrint(
+        'petId=${petData['id']} '
+            'foodName=${food['name']} '
+            'gain=${food['gain']}',
+      );
+
       final result = await GameApiService.instance.feedPet(
+        userId: currentUserId,
         petId: petData['id'] as int,
         foodName: food['name'].toString(),
         price: 0,
         gain: (food['gain'] as num).toDouble(),
         isMystery: food['isMystery'] == true,
       );
+
+      debugPrint('✅ feedPet 成功：$result');
+
       if (!mounted) return;
+
       setState(() {
-        _petTokens = int.tryParse(spendResult?['pet_tokens']?.toString() ?? '') ?? (_petTokens - price);
+        _petTokens =
+            int.tryParse(spendResult?['pet_tokens']?.toString() ?? '') ??
+                (_petTokens - price);
+
         petData['satiety'] =
-            (_toDouble(result['satiety'], fallback: petData['satiety'] as double).clamp(0.0, 1.0) as num)
+            (_toDouble(
+              result['satiety'],
+              fallback: _toDouble(
+                petData['satiety'],
+                fallback: 0.45,
+              ),
+            ).clamp(0.0, 1.0) as num)
                 .toDouble();
       });
-      _showMsg('${result['message'] ?? '餵食成功！'}（寵物代幣 -$price）');
+
+      _showMsg(
+        '${result['message'] ?? '餵食成功！'}（寵物代幣 -$price）',
+      );
+
       await _playFeedAnimation();
-    } catch (e) {
-      // ★ 合併自朋友版：若代幣已扣、但寵物 API 後續失敗，就補回代幣，避免玩家白白損失。
+
+    } catch (e, stackTrace) {
+      debugPrint('❌❌❌ 餵食真正錯誤：$e');
+      debugPrint('❌ stackTrace：$stackTrace');
+
       if (spendResult != null) {
         try {
-          final refund = await GameApiService.instance.addPetTokens(
+          final refund =
+          await GameApiService.instance.addPetTokens(
             amount: price,
             source: 'pet_food_refund',
           );
+
           if (mounted) {
             setState(() {
-              _petTokens = int.tryParse(refund['pet_tokens']?.toString() ?? '') ?? (_petTokens + price);
+              _petTokens =
+                  int.tryParse(
+                    refund['pet_tokens']?.toString() ?? '',
+                  ) ??
+                      (_petTokens + price);
             });
           }
-        } catch (_) {}
+
+          debugPrint('↩️ 已補回代幣');
+        } catch (refundError) {
+          debugPrint('❌ 補回代幣也失敗：$refundError');
+        }
       }
-      _showMsg('餵食失敗，代幣未扣除；請確認 5000 與 8000 API 是否啟動');
+
+      _showMsg('餵食失敗，請查看 Terminal 錯誤');
     }
   }
 
