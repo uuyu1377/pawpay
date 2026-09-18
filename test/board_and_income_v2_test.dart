@@ -49,7 +49,10 @@ void main() {
       final route = boardRoute3D(count, magic: count == 22);
       expect(route.length, count);
       for (var i = 0; i < count; i++) {
-        expect((route[i] - route[(i + 1) % count]).length, greaterThan(.20));
+        final next = (i + 1) % count;
+        final minimum = .10 * (boardTileScale3D(i, magic: count == 22) +
+            boardTileScale3D(next, magic: count == 22));
+        expect((route[i] - route[next]).length, greaterThan(minimum));
       }
     }
   });

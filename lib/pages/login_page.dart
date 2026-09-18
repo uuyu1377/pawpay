@@ -14,6 +14,8 @@ import '../services/line_auth_service.dart'; // ★ 新增：LINE 登入服務
 // 我們用 ../ 回到上一層 (lib)，然後找到 main_app_shell.dart
 import '../main_app_shell.dart';
 import 'onboarding_page.dart';
+import '../theme/app_palette.dart';
+import '../widgets/paw_toy_widgets.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -27,6 +29,7 @@ class _LoginPageState extends State<LoginPage> {
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
+  bool _obscurePassword = true;
 
   @override
   void dispose() {
@@ -306,192 +309,156 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  // ... (檔案的其餘部分保持不變) ...
   @override
   Widget build(BuildContext context) {
+    final p = AppPalette.of(context);
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
-      body: SafeArea(
-        // ★★★ 新增：用 Stack 疊一層 loading 遮罩 ★★★
-        child: Stack(
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24.0),
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 40),
-                    const Text(
-                      '建立帳號',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.black,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    const Text(
-                      '輸入電子郵件以註冊',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 16,
-                        color: Colors.grey,
-                      ),
-                    ),
-                    const SizedBox(height: 32),
+      backgroundColor: p.bg,
+      body: DecoratedBox(
+        decoration: BoxDecoration(gradient: LinearGradient(
+          begin: Alignment.topCenter, end: Alignment.bottomCenter,
+          colors: [p.accentSoft, pawToyCream, p.bg], stops: const [0, .46, 1],
+        )),
+        child: SafeArea(child: Stack(children: [
+          LayoutBuilder(builder: (context, box) => SingleChildScrollView(
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
+            child: Center(child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: AutofillGroup(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.pets_rounded, size: 20, color: p.accentInk),
+                  const SizedBox(width: 8),
+                  Text('PAWPAY', style: TextStyle(color: p.accentInk,
+                    fontSize: 19, letterSpacing: 3.5, fontWeight: FontWeight.w900)),
+                ]),
+                const SizedBox(height: 10),
+                Center(child: SizedBox(width: box.maxHeight < 620 ? 200 : 240,
+                  child: const PawCapsuleStage(open: false))),
+                const SizedBox(height: 8),
+                Text('把日常，存成小幸福', textAlign: TextAlign.center,
+                  style: TextStyle(color: p.ink, fontSize: 25, fontWeight: FontWeight.w800, height: 1.3)),
+                const SizedBox(height: 8),
+                Text('記下每一筆，和寵物一起慢慢長大。', textAlign: TextAlign.center,
+                  style: TextStyle(color: p.ink2, fontSize: 13, height: 1.5)),
+                const SizedBox(height: 26),
+                PawToyCard(padding: const EdgeInsets.fromLTRB(22, 24, 22, 26),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                    Text('歡迎來到 PAWPAY', style: TextStyle(color: p.ink, fontSize: 20, fontWeight: FontWeight.w800)),
+                    const SizedBox(height: 6),
+                    Text('登入或建立帳號，開始你的記帳旅程',
+                      style: TextStyle(color: p.ink2, fontSize: 12, height: 1.5)),
+                    const SizedBox(height: 22),
                     TextField(
-                      controller: _emailController, // ★ 新增：接上控制器
-                      decoration: InputDecoration(
-                        hintText: 'email@domain.com',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
-                        ),
-                        filled: true,
-                        fillColor: Colors.grey[200],
-                        contentPadding: const EdgeInsets.symmetric(
-                            vertical: 16, horizontal: 20),
-                      ),
+                      controller: _emailController,
+                      enabled: !_isLoading,
                       keyboardType: TextInputType.emailAddress,
+                      textInputAction: TextInputAction.next,
+                      autofillHints: const [AutofillHints.email],
+                      autocorrect: false,
+                      style: TextStyle(color: p.ink),
+                      decoration: _fieldDecoration(p, '電子郵件', 'email@domain.com', Icons.mail_outline_rounded),
                     ),
-                    const SizedBox(height: 12),
-                    // ★★★ 新增：密碼輸入框 ★★★
+                    const SizedBox(height: 14),
                     TextField(
                       controller: _passwordController,
-                      obscureText: true,
-                      decoration: InputDecoration(
-                        hintText: '密碼 (至少 6 個字)',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
+                      enabled: !_isLoading,
+                      obscureText: _obscurePassword,
+                      autofillHints: const [AutofillHints.password],
+                      textInputAction: TextInputAction.done,
+                      onSubmitted: (_) { if (!_isLoading) _handleEmailLogin(); },
+                      style: TextStyle(color: p.ink),
+                      decoration: _fieldDecoration(p, '密碼', '至少 6 個字', Icons.lock_outline_rounded).copyWith(
+                        suffixIcon: IconButton(
+                          tooltip: _obscurePassword ? '顯示密碼' : '隱藏密碼',
+                          onPressed: _isLoading ? null : () => setState(() => _obscurePassword = !_obscurePassword),
+                          icon: Icon(_obscurePassword ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                            size: 20, color: p.accentInk),
                         ),
-                        filled: true,
-                        fillColor: Colors.grey[200],
-                        contentPadding: const EdgeInsets.symmetric(
-                            vertical: 16, horizontal: 20),
                       ),
                     ),
-                    const SizedBox(height: 20),
-
-                    // Continue 按鈕 → ★ 改接 Email 登入
-                    ElevatedButton(
-                      onPressed: _isLoading ? null : _handleEmailLogin,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.black,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: const Text(
-                        'Continue',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    const SizedBox(height: 30),
-                    Row(
-                      children: [
-                        const Expanded(child: Divider(color: Colors.grey)),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                          child: Text(
-                            'or',
-                            style: TextStyle(color: Colors.grey[600], fontSize: 16),
-                          ),
-                        ),
-                        const Expanded(child: Divider(color: Colors.grey)),
-                      ],
-                    ),
-                    const SizedBox(height: 30),
-
-                    // Google, Apple, LINE, Phone 按鈕
-                    _buildSocialButton(
-                      context,
-                      text: '使用 Google 登入',
-                      icon: FontAwesomeIcons.google,
-                      color: Colors.white,
-                      textColor: Colors.black,
-                      onPressed: _isLoading ? null : _handleGoogleLogin, // ★ 改接 Google 登入
-                    ),
-                    const SizedBox(height: 8),
-                    _buildSocialButton(
-                      context,
-                      text: '使用 Apple 登入',
-                      icon: FontAwesomeIcons.apple,
-                      color: Colors.black,
-                      textColor: Colors.white,
-                      onPressed: () => _navigateToHome(context),
-                    ),
-                    const SizedBox(height: 12),
-                    _buildSocialButton(
-                      context,
-                      text: '使用 LINE 登入',
-                      icon: FontAwesomeIcons.line,
-                      color: const Color(0xFF00C300),
-                      textColor: Colors.white,
-                      onPressed: _isLoading ? null : _handleLineLogin, // ★ 改接真正的 LINE 登入
-                    ),
-                    const SizedBox(height: 12),
-                    _buildSocialButton(
-                      context,
-                      text: '使用手機號碼登入',
-                      icon: FontAwesomeIcons.phoneFlip,
-                      color: Colors.grey[200]!,
-                      textColor: Colors.black,
-                      onPressed: _isLoading ? null : _handlePhoneLogin, // ★ 改接真正的手機驗證登入
-                    ),
-                    const SizedBox(height: 24),
-                  ],
+                    const SizedBox(height: 22),
+                    PawToyButton(label: '登入 / 建立帳號',
+                      onPressed: _isLoading ? null : _handleEmailLogin, icon: Icons.arrow_forward_rounded),
+                    const SizedBox(height: 26),
+                    Row(children: [
+                      Expanded(child: Divider(color: p.line)),
+                      Padding(padding: const EdgeInsets.symmetric(horizontal: 12),
+                        child: Text('或使用其他方式', style: TextStyle(color: p.ink2, fontSize: 12))),
+                      Expanded(child: Divider(color: p.line)),
+                    ]),
+                    const SizedBox(height: 14),
+                    _buildSocialButton(context, text: '使用 Google 登入', icon: FontAwesomeIcons.google,
+                      color: const Color(0xFF4285F4), onPressed: _isLoading ? null : _handleGoogleLogin),
+                    const SizedBox(height: 10),
+                    _buildSocialButton(context, text: '使用 Apple 登入', icon: FontAwesomeIcons.apple,
+                      color: p.ink, onPressed: _isLoading ? null : () => _navigateToHome(context)),
+                    const SizedBox(height: 10),
+                    _buildSocialButton(context, text: '使用 LINE 登入', icon: FontAwesomeIcons.line,
+                      color: const Color(0xFF06A84F), onPressed: _isLoading ? null : _handleLineLogin),
+                    const SizedBox(height: 10),
+                    _buildSocialButton(context, text: '使用手機號碼登入', icon: FontAwesomeIcons.phoneFlip,
+                      color: p.accentInk, onPressed: _isLoading ? null : _handlePhoneLogin),
+                  ]),
                 ),
+                const SizedBox(height: 24),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  Icon(Icons.favorite_rounded, color: p.accentInk, size: 12),
+                  const SizedBox(width: 6),
+                  Flexible(child: Text('每一點累積，都值得被好好收藏', textAlign: TextAlign.center,
+                    style: TextStyle(color: p.ink2, fontSize: 11))),
+                ]),
+              ])),
+            )),
+          )),
+          if (_isLoading) ...[
+            ModalBarrier(dismissible: false, color: p.ink.withValues(alpha: .18)),
+            Center(child: Semantics(liveRegion: true, label: '登入中，請稍候',
+              child: PawToyCard(padding: const EdgeInsets.all(26),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  CircularProgressIndicator(color: p.accentInk, strokeWidth: 3),
+                  const SizedBox(height: 16),
+                  Text('正在準備你的旅程…', style: TextStyle(color: p.ink, fontWeight: FontWeight.w600)),
+                ]),
               ),
-            ),
-
-            // ★★★ 新增：登入中的 loading 遮罩 ★★★
-            if (_isLoading)
-              Container(
-                color: Colors.black54,
-                child: const Center(child: CircularProgressIndicator()),
-              ),
+            )),
           ],
-        ),
+        ])),
       ),
     );
   }
 
-  Widget _buildSocialButton(
-      BuildContext context, {
-        required String text,
-        required IconData icon,
-        required Color color,
-        required Color textColor,
-        required VoidCallback? onPressed, // ★ 改成可為 null (loading 時停用)
-      }) {
-    return ElevatedButton.icon(
+  InputDecoration _fieldDecoration(AppPalette p, String label, String hint, IconData icon) => InputDecoration(
+    labelText: label, hintText: hint, floatingLabelBehavior: FloatingLabelBehavior.always,
+    labelStyle: TextStyle(color: p.accentInk, fontWeight: FontWeight.w600),
+    hintStyle: TextStyle(color: p.ink2, fontSize: 13),
+    prefixIcon: Icon(icon, color: p.accentInk, size: 20),
+    filled: true, fillColor: Color.lerp(p.bg, Colors.white, .45),
+    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 17),
+    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: p.line)),
+    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(16), borderSide: BorderSide(color: p.accentInk, width: 1.5)),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(16)),
+  );
+
+  Widget _buildSocialButton(BuildContext context, {required String text, required IconData icon,
+    required Color color, required VoidCallback? onPressed}) {
+    final p = AppPalette.of(context);
+    return OutlinedButton(
       onPressed: onPressed,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: color,
-        foregroundColor: textColor,
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10),
-          side: color == Colors.white
-              ? const BorderSide(color: Colors.grey)
-              : BorderSide.none,
-        ),
-        elevation: 0,
+      style: OutlinedButton.styleFrom(
+        backgroundColor: Colors.white.withValues(alpha: .8), foregroundColor: p.ink,
+        padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 13),
+        side: BorderSide(color: p.line),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       ),
-      icon: Icon(icon, size: 20),
-      label: Text(
-        text,
-        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-      ),
+      child: Row(children: [
+        SizedBox(width: 24, child: Icon(icon, size: 19, color: color)),
+        const SizedBox(width: 12),
+        Expanded(child: Text(text, textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600))),
+        const SizedBox(width: 8),
+        Icon(Icons.chevron_right_rounded, color: p.ink3, size: 18),
+      ]),
     );
   }
 }

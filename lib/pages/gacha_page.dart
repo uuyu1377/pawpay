@@ -8,6 +8,8 @@ import 'mission_page.dart'; // ★ 合併自朋友版：任務中心入口
 import 'pet_choice_shop_page.dart';
 import '../widgets/paw_gacha_3d.dart';
 import '../theme/app_palette.dart';
+import '../widgets/paw_toy_widgets.dart';
+import '../services/current_pet_manager.dart';
 
 class GachaPage extends StatefulWidget {
   const GachaPage({super.key});
@@ -242,76 +244,70 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     );
   }
 
-  // --- 修正後的彈窗：動態顯示抽獎結果 ---
+  // Presentation only: reward spending and result selection stay above.
   void _showResultDialog(Map<String, dynamic>? res) {
-    bool isNone = res == null;
-    final bool isDuplicate = !isNone && (res['duplicate'] == true); // ★ 任務3：判斷這次是否抽到「已擁有」的寵物
-    showDialog(
+    final isNone = res == null;
+    final isDuplicate = res?['duplicate'] == true;
+    final type = res?['type']?.toString() ?? '';
+    final imagePath = CurrentPetManager.petImageMap[type];
+    final fallback = isNone ? Icons.spa_rounded : _getPetIcon(type);
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => Center(
-        child: Material(
-          color: Colors.transparent,
-          child: Container(
-            width: 280, padding: const EdgeInsets.all(25),
-            decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(30),
-                border: Border.all(color: Colors.black, width: 4),
-                boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 20, offset: Offset(0, 10))]
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(isNone ? "可惜！" : "扭蛋結果", style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.brown)),
-                const SizedBox(height: 25),
-                Container(
-                  width: 110, height: 110,
-                  decoration: BoxDecoration(
-                      color: isNone ? Colors.grey[100] : res['color'].withOpacity(0.15),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: isNone ? Colors.grey : res['color'], width: 4),
-                      boxShadow: isNone ? [] : [BoxShadow(color: res['color'].withOpacity(0.4), blurRadius: 15, spreadRadius: 2)]
+      barrierColor: AppPalette.of(context).ink.withValues(alpha: .38),
+      builder: (ctx) {
+        final p = AppPalette.of(ctx);
+        return Dialog(
+          backgroundColor: Colors.transparent, elevation: 0,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
+          child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 370),
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: PawToyCard(padding: const EdgeInsets.fromLTRB(24, 26, 24, 26),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    Icon(Icons.pets_rounded, size: 14, color: p.accentInk),
+                    const SizedBox(width: 7),
+                    Text('PAWPAY · 小小驚喜', style: TextStyle(color: p.accentInk,
+                      fontSize: 11, letterSpacing: 1.5, fontWeight: FontWeight.w800)),
+                  ]),
+                  const SizedBox(height: 18),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(color: p.accentSoft,
+                      borderRadius: BorderRadius.circular(30), border: Border.all(color: Colors.white)),
+                    child: Text(isNone ? '下次好運' : (isDuplicate ? '已擁有的夥伴' : '新夥伴登場'),
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: p.accentInk)),
                   ),
-                  child: Icon(
-                      isNone ? Icons.sentiment_neutral : _getPetIcon(res['type']),
-                      size: 65,
-                      color: isNone ? Colors.grey : res['color']
+                  const SizedBox(height: 8),
+                  TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: 1),
+                    duration: MediaQuery.of(ctx).disableAnimations ? Duration.zero : const Duration(milliseconds: 650),
+                    curve: Curves.easeOutCubic,
+                    builder: (_, value, __) => PawCapsuleStage(
+                      imagePath: imagePath, fallbackIcon: fallback, progress: value),
                   ),
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  // ★ 任務3：已擁有時改講「又抽到」，一眼看出是重複，不會誤以為是新寵物
-                  isNone
-                      ? "銘謝惠顧"
-                      : (isDuplicate ? "又抽到：${res['name']}" : "恭喜獲得：${res['name']}"),
-                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  // ★ 任務3：已擁有 → 明確提示「已擁有」，讓玩家知道發生什麼事
-                  isNone
-                      ? "獲得了再接再厲飼料球！"
-                      : (isDuplicate ? "你已經擁有這隻夥伴了（已擁有）" : "新的夥伴已經加入圖鑑囉！"),
-                  style: const TextStyle(color: Colors.grey, fontSize: 14),
-                ),
-                const SizedBox(height: 30),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: isNone ? Colors.grey[700] : Colors.redAccent,
-                      foregroundColor: Colors.white,
-                      shape: const StadiumBorder(),
-                      padding: const EdgeInsets.symmetric(horizontal: 45, vertical: 15)
+                  const SizedBox(height: 4),
+                  Semantics(liveRegion: true, child: Text(
+                    isNone ? '銘謝惠顧' : (isDuplicate ? '又見面了，${res?['name']}' : '恭喜獲得 ${res?['name']}！'),
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: p.ink, fontSize: 24, fontWeight: FontWeight.w800, height: 1.3),
+                  )),
+                  const SizedBox(height: 12),
+                  Text(
+                    isNone ? '獲得了再接再厲飼料球！'
+                      : (isDuplicate ? '你已經擁有這隻夥伴了（已擁有）' : '新的夥伴已經加入圖鑑囉！'),
+                    textAlign: TextAlign.center, style: TextStyle(color: p.ink2, fontSize: 14, height: 1.6),
                   ),
-                  child: const Text("收下", style: TextStyle(fontWeight: FontWeight.bold)),
-                ),
-              ],
+                  const SizedBox(height: 26),
+                  PawToyButton(label: '收下', onPressed: () => Navigator.pop(ctx),
+                    icon: isNone ? Icons.check_rounded : Icons.favorite_rounded),
+                ]),
+              ),
             ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
