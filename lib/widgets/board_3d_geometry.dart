@@ -84,6 +84,9 @@ class BoardCamera3D {
         points.add(BoardPoint3(p[0] * 1.04, -.15, p[2] * 1.04));
         points.add(BoardPoint3(p[0] * .80, .53, p[2] * .80));
       }
+      for (final p in taiwanOffshoreBounds3D) {
+        points.add(BoardPoint3(p[0], p[1], p[2]));
+      }
     }
     final screen = points.map(_plane).toList();
     return Rect.fromLTRB(
@@ -124,6 +127,12 @@ List<BoardPoint3> boardRoute3D(int count, {bool magic = false}) {
     );
   });
 }
+
+/// Dense northern cities keep their geographic anchors; only toy sizes shrink.
+double boardTileScale3D(int index, {bool magic = false}) =>
+    magic || index < 0 || index >= taiwanTileScales3D.length
+        ? 1.0
+        : taiwanTileScales3D[index];
 
 /// Equal-size side rails preserve every name, with stable vertical spacing.
 /// Sorting by screen Y keeps the leaders in order when the camera rotates.

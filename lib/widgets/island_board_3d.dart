@@ -507,8 +507,9 @@ class IslandScenePainter3D extends CustomPainter {
     BoardPoint3 offset = const BoardPoint3(0, 0, 0),
     Color? tile,
     Color? roof,
+    double scale = 1,
   }) {
-    final points = face.points.map((p) => p + offset).toList();
+    final points = face.points.map((p) => p * scale + offset).toList();
     final vertices = points.map(camera.project).toList();
     final normal = (points[1] - points[0])
         .cross(points[2] - points[0])
@@ -564,7 +565,8 @@ class IslandScenePainter3D extends CustomPainter {
       faces.addAll(
         building.map(
           (f) =>
-              _project(f, offset: route[i], tile: baseColor, roof: roofColor),
+              _project(f, offset: route[i], tile: baseColor, roof: roofColor,
+                scale: boardTileScale3D(i, magic: magic)),
         ),
       );
     }
@@ -664,15 +666,16 @@ class IslandScenePainter3D extends CustomPainter {
   void _ring(Canvas canvas, int index, Color color) {
     if (index < 0 || index >= route.length) return;
     final center = route[index];
+    final radius = .119 * boardTileScale3D(index, magic: magic);
     final points = List.generate(
       32,
       (i) => camera
           .project(
             center +
                 BoardPoint3(
-                  math.cos(i * math.pi / 16) * .119,
+                  math.cos(i * math.pi / 16) * radius,
                   .006,
-                  math.sin(i * math.pi / 16) * .119,
+                  math.sin(i * math.pi / 16) * radius,
                 ),
           )
           .screen,
@@ -844,6 +847,27 @@ class IslandScenePainter3D extends CustomPainter {
     }
   }
 
+  void _compass(Canvas canvas, Size size) {
+    final origin = camera.project(const BoardPoint3(0, .12, 0)).screen;
+    final north = camera.project(const BoardPoint3(0, .12, -1)).screen - origin;
+    if (north.distance < .01) return;
+    final direction = north / north.distance;
+    final center = Offset(size.width / 2, 23);
+    canvas.drawCircle(center, 19, Paint()..color = Colors.white.withValues(alpha: .88));
+    canvas.drawLine(center + direction * 3, center + direction * 13,
+      Paint()..color = const Color(0xFFB77D74)..strokeWidth = 2..strokeCap = StrokeCap.round);
+    final tip = center + direction * 13;
+    final side = Offset(-direction.dy, direction.dx);
+    canvas.drawPath(Path()..moveTo(tip.dx, tip.dy)
+      ..lineTo((tip - direction * 5 + side * 3).dx, (tip - direction * 5 + side * 3).dy)
+      ..lineTo((tip - direction * 5 - side * 3).dx, (tip - direction * 5 - side * 3).dy)..close(),
+      Paint()..color = const Color(0xFFB77D74));
+    final label = _text('北', 9, const Color(0xFF615E58), bold: true);
+    final at = center - direction * 7;
+    label.paint(canvas, at - Offset(label.width / 2, label.height / 2));
+    label.dispose();
+  }
+
   @override
   void paint(Canvas canvas, Size size) {
     final locations = positions();
@@ -857,6 +881,7 @@ class IslandScenePainter3D extends CustomPainter {
     _drawFaces(canvas, pieces);
     _names(canvas, size);
     _portraits(canvas, size, locations);
+    if (!magic) _compass(canvas, size);
   }
 
   @override
