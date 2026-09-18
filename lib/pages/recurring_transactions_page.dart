@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../models/transaction_model.dart';
 import '../services/currency_service.dart';
 import '../services/recurring_api_service.dart';
+import 'recurring_income_history_page.dart';
 import 'type_page.dart';
 
 class RecurringTransactionsPage extends StatefulWidget {
@@ -92,7 +93,14 @@ class _RecurringTransactionsPageState extends State<RecurringTransactionsPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('固定收支')),
+      appBar: AppBar(title: const Text('固定收支'), actions: [
+        IconButton(tooltip: '固定收入入帳紀錄', icon: const Icon(Icons.history_rounded),
+          onPressed: () async {
+            await Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const RecurringIncomeHistoryPage()));
+            if (mounted) _load();
+          }),
+      ]),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openEditor(),
         icon: const Icon(Icons.add_rounded),

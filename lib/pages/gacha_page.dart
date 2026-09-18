@@ -6,6 +6,8 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:user_interface/services/game_api_service.dart';
 import 'mission_page.dart'; // ★ 合併自朋友版：任務中心入口
 import 'pet_choice_shop_page.dart';
+import '../widgets/paw_gacha_3d.dart';
+import '../theme/app_palette.dart';
 
 class GachaPage extends StatefulWidget {
   const GachaPage({super.key});
@@ -43,16 +45,11 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     {'key': 'giraffe',     'name': '長頸鹿',   'weight': 2},
   ];
 
-  List<Offset> _capsulePositions = [];
-  final double _globeRadius = 90.0;
-
   @override
   void initState() {
     super.initState();
-    _rollController = AnimationController(vsync: this, duration: const Duration(milliseconds: 100))
-      ..addListener(() { if (_isRolling) _updateCapsulePhysics(); });
+    _rollController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1400));
     _dropController = AnimationController(vsync: this, duration: const Duration(milliseconds: 800));
-    _initCapsules();
     _loadCoins();
   }
 
@@ -80,26 +77,6 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     await Navigator.of(context).push(
       MaterialPageRoute(builder: (_) => const PetChoiceShopPage()),
     );
-  }
-
-  void _initCapsules() {
-    final rng = Random();
-    _capsulePositions = List.generate(16, (index) {
-      double angle = rng.nextDouble() * 2 * pi;
-      double r = rng.nextDouble() * (_globeRadius - 20);
-      return Offset(r * cos(angle), r * sin(angle));
-    });
-  }
-
-  void _updateCapsulePhysics() {
-    setState(() {
-      final rng = Random();
-      for (int i = 0; i < _capsulePositions.length; i++) {
-        double angle = rng.nextDouble() * 2 * pi;
-        double r = 10 + rng.nextDouble() * (_globeRadius - 30);
-        _capsulePositions[i] = Offset(r * cos(angle), r * sin(angle));
-      }
-    });
   }
 
   @override
@@ -146,8 +123,10 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
 
     _rollController.repeat();
     await Future.delayed(const Duration(seconds: 2));
+    if (!mounted) return;
     _rollController.stop();
     await _dropController.forward();
+    if (!mounted) return;
     _dropController.reset();
 
     Map<String, dynamic>? result;
@@ -193,120 +172,73 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
 
   @override
   Widget build(BuildContext context) {
+    final palette = AppPalette.of(context);
     return Scaffold(
-      backgroundColor: const Color(0xFFFFF5F5),
-      appBar: AppBar(backgroundColor: Colors.transparent, elevation: 0, foregroundColor: Colors.brown),
-      // ★ 任務1：外層改為 LayoutBuilder + 可捲動容器，避免內容比螢幕高時，
-      //   底部出現黃黑「BOTTOM OVERFLOWED BY N PIXELS」警示條（原本用 Center 直接放 Column 會溢位）。
-      //   有空間時維持原本置中/Spacer 的排版，空間不足時才允許輕微捲動，畫面就不會再有黃框。
-      body: LayoutBuilder(
-        builder: (context, constraints) => SingleChildScrollView(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: constraints.maxHeight),
-            child: IntrinsicHeight(
-              child: Center(
-                child: Column(
-                  children: [
-                    _buildCoinBadge(),
-                    const SizedBox(height: 12),
-                    TextButton.icon( // ★ 合併自朋友版：任務中心入口
-                      onPressed: _openMissions,
-                      icon: const Icon(Icons.task_alt_rounded),
-                      label: const Text('查看任務與領取扭蛋幣'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _openPetChoiceShop,
-                      icon: const Icon(Icons.card_giftcard_rounded),
-                      label: const Text('寵物自選商店（NT\$200／張）'),
-                    ),
-                    const Spacer(),
-                    _buildGachaMachineBody(),
-                    const SizedBox(height: 50),
-                    _buildActionBtn(),
-                    const SizedBox(height: 80),
-                  ],
-                ),
-              ), // ★ 任務1：關閉 Center
-            ), // ★ 任務1：關閉 IntrinsicHeight
-          ), // ★ 任務1：關閉 ConstrainedBox
-        ), // ★ 任務1：關閉 SingleChildScrollView
-      ), // ★ 任務1：關閉 LayoutBuilder
+      backgroundColor: palette.bg,
+      appBar: AppBar(backgroundColor: palette.bg, elevation: 0,
+        foregroundColor: palette.accentInk,
+        title: Text('寵物扭蛋', style: TextStyle(fontSize: 18,
+          color: palette.ink, fontWeight: FontWeight.w600))),
+      body: SafeArea(top: false, child: LayoutBuilder(builder: (context, box) {
+        final machineWidth = min(max(0.0, box.maxWidth - 40), 360.0);
+        return SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              _buildCoinBadge(),
+              const SizedBox(height: 10),
+              TextButton.icon(onPressed: _openMissions,
+                icon: const Icon(Icons.task_alt_rounded, size: 19),
+                label: const Text('查看任務與領取扭蛋幣', textAlign: TextAlign.center)),
+              OutlinedButton.icon(onPressed: _openPetChoiceShop,
+                icon: const Icon(Icons.card_giftcard_rounded, size: 19),
+                label: const Text('寵物自選商店（NT\$200／張）', textAlign: TextAlign.center)),
+              const SizedBox(height: 6),
+              SizedBox(width: machineWidth, child: PawGachaMachine3D(
+                roll: _rollController, drop: _dropController)),
+              const SizedBox(height: 12),
+              _buildActionBtn(),
+            ]))),
+        );
+      })),
     );
   }
 
   Widget _buildCoinBadge() {
+    final palette = AppPalette.of(context);
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(30), boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10, offset: Offset(0, 4))]),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.stars, color: Colors.orangeAccent), const SizedBox(width: 8), Text("$_userCoins 扭蛋幣", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.brown))]),
-    );
-  }
-
-  Widget _buildGachaMachineBody() {
-    return SizedBox(
-      width: 260, height: 400,
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          CustomPaint(size: const Size(260, 400), painter: GachaArtPainter()),
-          Positioned(left: 0, top: 180, child: _buildSmallHandle(true)),
-          Positioned(right: 0, top: 180, child: _buildSmallHandle(false)),
-          Positioned(
-            top: 60,
-            child: Container(
-              width: 190, height: 190,
-              decoration: const BoxDecoration(shape: BoxShape.circle),
-              child: Stack(
-                alignment: Alignment.center,
-                children: _capsulePositions.asMap().entries.map((e) => _buildBall(e.value, e.key)).toList(),
-              ),
-            ),
-          ),
-          AnimatedBuilder(
-            animation: _dropController,
-            builder: (context, child) {
-              if (_dropController.value == 0) return const SizedBox.shrink();
-              return Positioned(
-                top: 260 + (_dropController.value * 90),
-                child: _buildBall(Offset.zero, 0, isFixed: true),
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSmallHandle(bool isLeft) {
-    return Transform.rotate(
-      angle: _isRolling ? (isLeft ? 1 : -1) * pi * 2 * _rollController.value : 0,
-      child: Container(width: 25, height: 45, decoration: BoxDecoration(color: const Color(0xFFB71C1C), borderRadius: BorderRadius.circular(8), border: Border.all(color: Colors.black, width: 3))),
-    );
-  }
-
-  Widget _buildBall(Offset pos, int index, {bool isFixed = false}) {
-    final colors = [Colors.redAccent, Colors.blueAccent, Colors.yellowAccent, Colors.greenAccent, Colors.purpleAccent, Colors.orangeAccent];
-    return Positioned(
-      left: isFixed ? 78 : (95 + pos.dx - 18),
-      top: isFixed ? 0 : (95 + pos.dy - 18),
-      child: Container(
-        width: 36, height: 36,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle, border: Border.all(color: Colors.black, width: 2),
-          gradient: LinearGradient(colors: [colors[index % 6], Colors.white], begin: Alignment.topCenter, end: Alignment.bottomCenter, stops: const [0.5, 0.51]),
-        ),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
+      decoration: BoxDecoration(color: palette.card, borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: palette.line), boxShadow: palette.cardShadow),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.stars_rounded, color: Color(0xFFE3B465)),
+        const SizedBox(width: 8),
+        Flexible(child: Text("$_userCoins 扭蛋幣", style: TextStyle(fontSize: 17,
+          fontWeight: FontWeight.bold, color: palette.ink))),
+      ]),
     );
   }
 
   Widget _buildActionBtn() {
-    return InkWell(
-      onTap: _startGacha,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 18),
-        decoration: BoxDecoration(color: _isRolling ? Colors.grey : const Color(0xFFFF5252), borderRadius: BorderRadius.circular(40), border: Border.all(color: Colors.black, width: 3), boxShadow: const [BoxShadow(color: Colors.black26, offset: Offset(0, 6))]),
-        child: Text(_isRolling ? "扭動中..." : "消耗 10 扭蛋幣 扭一次", style: const TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
-      ),
+    final palette = AppPalette.of(context);
+    return Semantics(button: true, enabled: !_isRolling,
+      child: Material(color: Colors.transparent, child: InkWell(
+        onTap: _startGacha,
+        borderRadius: BorderRadius.circular(28),
+        child: Ink(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+          decoration: BoxDecoration(
+            color: _isRolling ? palette.line : palette.accent,
+            borderRadius: BorderRadius.circular(28),
+            boxShadow: _isRolling ? [] : palette.cardShadow,
+          ),
+          child: Text(_isRolling ? "扭動中..." : "消耗 10 扭蛋幣 扭一次",
+            textAlign: TextAlign.center,
+            style: TextStyle(color: !_isRolling && ThemeData.estimateBrightnessForColor(palette.accent) == Brightness.dark
+              ? Colors.white : palette.ink, fontSize: 17, fontWeight: FontWeight.bold)),
+        ),
+      )),
     );
   }
 
@@ -425,32 +357,4 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
       default:            return Icons.pets;
     }
   }
-}
-
-class GachaArtPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final bodyPaint = Paint()..color = const Color(0xFFE53935)..style = PaintingStyle.fill;
-    final strokePaint = Paint()..color = Colors.black..style = PaintingStyle.stroke..strokeWidth = 4;
-    final glassPaint = Paint()..color = Colors.white.withOpacity(0.2)..style = PaintingStyle.fill;
-
-    final capRect = Rect.fromLTWH(size.width / 2 - 60, 25, 120, 40);
-    canvas.drawRRect(RRect.fromRectAndRadius(capRect, const Radius.circular(15)), bodyPaint);
-    canvas.drawRRect(RRect.fromRectAndRadius(capRect, const Radius.circular(15)), strokePaint);
-
-    canvas.drawCircle(Offset(size.width / 2, 155), 100, glassPaint);
-    canvas.drawCircle(Offset(size.width / 2, 155), 100, strokePaint);
-
-    final baseRect = Rect.fromLTWH(size.width / 2 - 85, 240, 170, 130);
-    canvas.drawRRect(RRect.fromRectAndRadius(baseRect, const Radius.circular(25)), bodyPaint);
-    canvas.drawRRect(RRect.fromRectAndRadius(baseRect, const Radius.circular(25)), strokePaint);
-
-    final signRect = Rect.fromLTWH(size.width / 2 - 40, 310, 80, 40);
-    canvas.drawRRect(RRect.fromRectAndRadius(signRect, const Radius.circular(8)), Paint()..color = const Color(0xFFFFFDE7));
-    canvas.drawRRect(RRect.fromRectAndRadius(signRect, const Radius.circular(8)), strokePaint);
-
-    canvas.drawCircle(Offset(size.width / 2, 275), 32, Paint()..color = Colors.black45);
-    canvas.drawCircle(Offset(size.width / 2, 275), 32, strokePaint);
-  }
-  @override bool shouldRepaint(covariant CustomPainter old) => false;
 }

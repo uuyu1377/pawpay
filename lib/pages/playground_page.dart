@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import '../widgets/toy_board_art.dart';
+import '../widgets/island_board_3d.dart';
 
 import '../theme/app_palette.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -223,10 +225,6 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   StreamSubscription? _accelerometerSub;
   DateTime _lastShakeTime = DateTime.now();
   bool _isLoadingGameState = false;
-
-  // 縮放手勢
-  double _scale = 1.0;
-  double _baseScale = 1.0;
 
   String get _themeKey => _currentTheme == MapTheme.taiwan ? 'taiwan' : 'magicIsland';
 
@@ -499,8 +497,6 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
   // 每走一格的節奏。從 180ms 放慢到 420ms，讓玩家看得見棋子一步一步走過去。
   static const Duration _stepInterval = Duration(milliseconds: 420);
-  // 棋子滑動的動畫時間，比節奏略短，走完一格會有短暫的落地停頓。
-  static const Duration _stepGlide = Duration(milliseconds: 360);
 
   void _movePlayer(Player p, int steps) async {
     for (int i = 0; i < steps; i++) {
@@ -619,7 +615,6 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       _gameStarted = true;
       _gameOver = false;
       _isLoadingGameState = true;
-      _scale = 1.0;
     });
     _loadGameStateFromApi(theme);
   }
@@ -656,21 +651,23 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                 _buildTopBar(),
                 _buildGameLog(),
                 const SizedBox(height: 4),
-                Expanded(
-                  child: LayoutBuilder(builder: (ctx, box) {
-                    final mapSize = (min(box.maxWidth, box.maxHeight) * 0.96).clamp(240.0, 640.0);
-                    return GestureDetector(
-                      onScaleStart: (_) => _baseScale = _scale,
-                      onScaleUpdate: (d) => setState(() => _scale = (_baseScale * d.scale).clamp(0.6, 2.5)),
-                      child: Center(
-                        child: Transform.scale(
-                          scale: _scale,
-                          child: _buildMapLayer(mapSize),
-                        ),
-                      ),
-                    );
-                  }),
-                ),
+                Expanded(child: IslandBoard3D(
+                  key: ValueKey(_currentTheme),
+                  sites: _currentPath.map((node) {
+                    final owners = _players.where((p) => p.id == node.ownerId);
+                    final owner = owners.isEmpty ? null : owners.first;
+                    return BoardSite3D(name: node.name, kind: node.type.name,
+                      cost: node.baseCost, rent: node.rent, level: node.level,
+                      ownerColor: owner?.color, ownerName: owner?.name);
+                  }).toList(),
+                  pawns: _players.where((p) => !p.isBankrupt).map((p) => BoardPawn3D(
+                    id: p.id, name: p.name, step: p.pathStep, color: p.color,
+                    imagePath: p.animationPath, emoji: p.emoji)).toList(),
+                  activePlayerId: _players[_currentPlayerIdx].id,
+                  nextStep: !_gameOver && _currentPlayerIdx == 0
+                    ? (_players[0].pathStep + 1) % _currentPath.length : null,
+                  magic: isMagic, accent: AppPalette.of(context).accent,
+                )),
                 _buildBottomBar(),
               ],
             ),
@@ -747,7 +744,6 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                       onPressed: () => setState(() {
                         _gameStarted = false;
                         _gameOver = false;
-                        _scale = 1.0;
                       }),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppPalette.of(context).accent,
@@ -763,210 +759,6 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  // --- 地圖層（無 3D 傾斜，平面但帶陰影）---
-  Widget _buildMapLayer(double mapSize) {
-    return SizedBox(
-      width: mapSize,
-      height: mapSize,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          // 背景畫布
-          CustomPaint(
-            size: Size(mapSize, mapSize),
-            painter: _currentTheme == MapTheme.taiwan
-                ? TaiwanMapPainter()
-                : MagicIslandPainter(accent: AppPalette.of(context).accent),
-          ),
-          // 路徑連線
-          CustomPaint(
-            size: Size(mapSize, mapSize),
-            painter: PathLinePainter(
-              nodes: _currentPath,
-              isMagic: _currentTheme == MapTheme.magicIsland,
-            ),
-          ),
-          // 地塊標記
-          ..._currentPath.asMap().entries.map((e) => _buildMarker(e.value, e.key, mapSize)),
-          // 渲染所有玩家，將使用者 (id == 0) 放到最後面繪製，確保寵物不會被其他棋子蓋住
-          ..._players.where((p) => !p.isBankrupt && p.id != 0).map((p) => _buildPawn(p, mapSize)),
-          if (!_players[0].isBankrupt) _buildPawn(_players[0], mapSize),
-        ],
-      ),
-    );
-  }
-
-  // --- 地塊標記 ---
-  Widget _buildMarker(GameNode node, int idx, double mapSize) {
-    final isNext = idx == (_players[_currentPlayerIdx].pathStep + 1) % _currentPath.length && !_gameOver && _currentPlayerIdx == 0;
-    final owner  = node.ownerId != null ? _players[node.ownerId!] : null;
-
-    Color bg;
-    Color textColor;
-    Widget? icon;
-
-    switch (node.type) {
-      case BlockType.start:
-        bg = const Color(0xFFFFE082);
-        textColor = const Color(0xFF5D4037);
-        icon = const Text("🚩", style: TextStyle(fontSize: 10));
-        break;
-      case BlockType.jail:
-        bg = const Color(0xFFB0BEC5);
-        textColor = Colors.white;
-        icon = const Text("🔒", style: TextStyle(fontSize: 10));
-        break;
-      case BlockType.goJail:
-        bg = const Color(0xFFFFAB91);
-        textColor = const Color(0xFF5D4037);
-        icon = const Text("⚠️", style: TextStyle(fontSize: 10));
-        break;
-      case BlockType.chance:
-        bg = const Color(0xFFCE93D8);
-        textColor = Colors.white;
-        icon = const Text("🎁", style: TextStyle(fontSize: 10));
-        break;
-      case BlockType.tax:
-        bg = const Color(0xFFEF9A9A);
-        textColor = Colors.white;
-        icon = const Text("💸", style: TextStyle(fontSize: 10));
-        break;
-      case BlockType.land:
-        bg = owner != null ? owner.color.withOpacity(0.85) : Colors.white;
-        textColor = owner != null ? Colors.white : Colors.grey.shade700;
-        if (node.level > 0) icon = Row(mainAxisSize: MainAxisSize.min, children: List.generate(node.level, (_) => const Text("🏠", style: TextStyle(fontSize: 7))));
-        break;
-    }
-
-    return Positioned(
-      left: node.position.dx * mapSize - 22,
-      top:  node.position.dy * mapSize - 20,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (isNext)
-            const Text("👇", style: TextStyle(fontSize: 14)),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 300),
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-            decoration: BoxDecoration(
-              color: bg,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: isNext ? AppPalette.of(context).accent : Colors.grey.shade300, width: isNext ? 2 : 1),
-              boxShadow: [BoxShadow(color: Colors.black12, blurRadius: isNext ? 6 : 2, offset: const Offset(0, 2))],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (icon != null) icon,
-                Text(
-                  node.name,
-                  style: TextStyle(fontSize: 7.5, fontWeight: FontWeight.bold, color: textColor, height: 1.1),
-                  textAlign: TextAlign.center,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // --- 玩家棋子（更新為寵物 Lottie 動畫）---
-  Widget _buildPawn(Player p, double mapSize) {
-    final pos = _currentPath[p.pathStep].position;
-
-    // 如果是使用者 (寵物)，給他比較大的尺寸，其他電腦玩家用預設小尺寸
-    final isUser = p.id == 0;
-    final size = isUser ? 75.0 : 40.0;
-
-    final cx = pos.dx * mapSize;
-    final cy = pos.dy * mapSize;
-    final left = (cx - size / 2).clamp(0.0, mapSize - size);
-    final top  = (cy - size).clamp(0.0, mapSize - size);
-
-    // AnimatedPositioned：棋子會平滑滑到下一格，而不是瞬間跳過去。
-    return AnimatedPositioned(
-      duration: _stepGlide,
-      curve: Curves.easeOut,
-      left: left,
-      top:  top,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 名字標籤
-          Container(
-            margin: const EdgeInsets.only(bottom: 3),
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: p.color,
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [BoxShadow(color: p.color.withOpacity(0.6), blurRadius: 8)],
-            ),
-            child: Text(
-              p.name,
-              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
-            ),
-          ),
-
-          if (p.animationPath != null)
-          // ===== 寵物渲染模式（與分析畫面一致：所有寵物均顯示 Lottie 動畫）=====
-            Stack(
-              alignment: Alignment.bottomCenter,
-              children: [
-                // 腳下的魔力底圈
-                Container(
-                  width: size * 0.7,
-                  height: size * 0.25,
-                  margin: const EdgeInsets.only(bottom: 5),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(100),
-                    color: p.color.withOpacity(0.3),
-                    boxShadow: [
-                      BoxShadow(color: p.color.withOpacity(0.6), blurRadius: 15, spreadRadius: 2),
-                    ],
-                  ),
-                ),
-                // 寵物動畫本體
-                SizedBox(
-                  width: size,
-                  height: size,
-                  child: isUser
-                      ? Image.asset(
-                    p.animationPath!,
-                    fit: BoxFit.contain,
-                  )
-                      : Lottie.asset(
-                    p.animationPath!,
-                    fit: BoxFit.contain,
-                    animate: true,
-                    repeat: true,
-                  ),
-                ),
-              ],
-            )
-          else
-          // ===== 沒有寵物時的傳統圓圈模式 =====
-            Container(
-              width: size,
-              height: size,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withOpacity(0.9),
-                border: Border.all(color: p.color, width: 2),
-                boxShadow: [BoxShadow(color: p.color.withOpacity(0.5), blurRadius: 8)],
-              ),
-              child: Center(
-                child: p.emoji != null
-                    ? Text(p.emoji!, style: const TextStyle(fontSize: 18))
-                    : Icon(p.icon, color: p.color, size: 20),
-              ),
-            ),
-        ],
       ),
     );
   }
@@ -1387,6 +1179,7 @@ class TaiwanMapPainter extends CustomPainter {
     island.cubicTo(w * 0.17, h * 0.55, w * 0.19, h * 0.38, w * 0.24, h * 0.28);
     island.cubicTo(w * 0.30, h * 0.13, w * 0.42, h * 0.07, w * 0.55, h * 0.06);
     island.close();
+    paintRaisedIsland(canvas, island, side: const Color(0xFF63946B), depth: h * .024);
     canvas.drawPath(island, islandPaint);
 
     // 島嶼白色邊框
@@ -1464,6 +1257,19 @@ class MagicIslandPainter extends CustomPainter {
         ],
       ).createShader(Rect.fromLTWH(0, 0, w, h)),
     );
+
+    // A raised floating platform underneath the original circular route.
+    final platform = Path()..addOval(Rect.fromCenter(
+      center: Offset(w * .5, h * .53), width: w * .92, height: h * .84));
+    paintRaisedIsland(canvas, platform,
+      side: Color.lerp(accent, const Color(0xFF786794), .45)!, depth: h * .032);
+    canvas.drawPath(platform, Paint()..shader = LinearGradient(
+      begin: Alignment.topLeft, end: Alignment.bottomRight,
+      colors: [HSLColor.fromColor(accent).withLightness(.96).toColor(),
+        HSLColor.fromColor(accent).withLightness(.85).toColor()],
+    ).createShader(Rect.fromLTWH(0, 0, w, h)));
+    canvas.drawPath(platform, Paint()..color = Colors.white.withOpacity(.65)
+      ..style = PaintingStyle.stroke..strokeWidth = 2);
 
     // 可愛彩虹弧
     _drawRainbow(canvas, Offset(w * 0.5, h * 0.55), w * 0.42);

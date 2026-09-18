@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:user_interface/models/transaction_model.dart';
 import 'package:intl/intl.dart';
+import '../services/recurring_income_review_service.dart';
+import '../widgets/recurring_income_review_bar.dart';
+import '../widgets/income_review_problem.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:async';
 
@@ -30,6 +33,7 @@ class HomePage extends StatefulWidget {
   final Function(String id)? onDeleteTransaction;
   final Function(Transaction tx)? onEditTransaction;
   final String defaultCurrencyCode;
+  final Future<void> Function(RecurringIncomeReview review)? onRecurringIncomeChanged;
 
   const HomePage({
     super.key,
@@ -37,6 +41,7 @@ class HomePage extends StatefulWidget {
     this.onAiAnalyzeRequest, // 接收外部傳入的處理函式
     this.onDeleteTransaction, // ★★★ 新增 ★★★
     this.onEditTransaction,   // ★★★ 新增 ★★★
+    this.onRecurringIncomeChanged,
     this.defaultCurrencyCode = CurrencyService.defaultCode,
   });
 
@@ -46,6 +51,75 @@ class HomePage extends StatefulWidget {
 
 class HomePageState extends State<HomePage> {
   DateTime _selectedDate = DateTime.now();
+
+  Map<String, RecurringIncomeReview> _incomeReviews = {};
+  final Set<String> _reviewBusy = {};
+  int _reviewReadGeneration = 0;
+  RecurringIncomeReviewException? _reviewError;
+
+  Future<void> reloadIncomeReviews() async {
+    final generation = ++_reviewReadGeneration;
+    final ids = widget.transactions.where((tx) => tx.type == TransactionType.income)
+      .map((tx) => tx.id).toList();
+    if (ids.isEmpty) {
+      if (mounted) setState(() { _incomeReviews = {}; _reviewError = null; });
+      return;
+    }
+    try {
+      final rows = await RecurringIncomeReviewService.instance.fetchIndex(ids);
+      if (!mounted || generation != _reviewReadGeneration) return;
+      setState(() { _incomeReviews = rows; _reviewError = null; });
+    } catch (error) {
+      if (!mounted || generation != _reviewReadGeneration) return;
+      setState(() {
+        _incomeReviews = {};
+        _reviewError = RecurringIncomeReviewException.from(error);
+      });
+    }
+  }
+
+  Future<bool> _applyIncomeReview(RecurringIncomeReview review, String action) async {
+    if (_reviewBusy.contains(review.key)) return false;
+    ++_reviewReadGeneration; // discard reads that started before this write
+    setState(() => _reviewBusy.add(review.key));
+    try {
+      final updated = await RecurringIncomeReviewService.instance.apply(review, action);
+      if (!mounted) return true;
+      ++_reviewReadGeneration;
+      setState(() { _incomeReviews[updated.transactionId] = updated; _reviewError = null; });
+      await widget.onRecurringIncomeChanged?.call(updated);
+      if (!mounted) return true;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(action == 'cancel' ? '已取消本次入帳，下期仍照原設定'
+          : action == 'restore' ? '已復原本次收入' : '已確認，不會重複入帳'),
+        duration: const Duration(seconds: 8),
+        action: action == 'cancel' ? SnackBarAction(label: '復原',
+          onPressed: () => _applyIncomeReview(updated, 'restore')) : null,
+      ));
+      return true;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('$e')));
+        await reloadIncomeReviews();
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _reviewBusy.remove(review.key));
+    }
+  }
+
+  Widget _buildReviewedTransactionItem(Transaction tx, String amount, Color color) {
+    final original = _buildTransactionItem(tx, amount, color);
+    final review = _incomeReviews[tx.id];
+    if (tx.type != TransactionType.income || review == null) return original;
+    return Column(key: ValueKey('income-review-${tx.id}'), children: [
+      original,
+      Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+        child: RecurringIncomeReviewBar(review: review, busy: _reviewBusy.contains(review.key),
+          onAction: (action) => _applyIncomeReview(review, action))),
+    ]);
+  }
+
 
   // AI 短評相關狀態 (保留你的邏輯)
   String? _aiComment;
@@ -141,6 +215,7 @@ class HomePageState extends State<HomePage> {
     _loadIdentity();
     reloadCurrencySettings(); // ★ 合併自朋友版(C)：初次載入預設幣別顯示設定
     _loadCategoryBudgets();
+    reloadIncomeReviews();
     // HomePage 被 IndexedStack 保留在記憶體裡不會重新 initState，
     // 設定頁存檔類別預算時靠這個監聽器即時重讀，不用等交易筆數變動才更新。
     CategoryBudgetService.revision.addListener(_loadCategoryBudgets);
@@ -256,6 +331,7 @@ class HomePageState extends State<HomePage> {
   @override
   void didUpdateWidget(covariant HomePage oldWidget) {
     super.didUpdateWidget(oldWidget);
+    reloadIncomeReviews();
     if (oldWidget.defaultCurrencyCode != widget.defaultCurrencyCode) {
       setState(() => _currencyCode = widget.defaultCurrencyCode);
     }
@@ -408,7 +484,7 @@ class HomePageState extends State<HomePage> {
       }
 
       // ★★★ 修改：將整個 tx 物件傳給 _buildTransactionItem ★★★
-      groupedListWidgets.add(_buildTransactionItem(
+      groupedListWidgets.add(_buildReviewedTransactionItem(
         tx,
         '${tx.type == TransactionType.income ? '+' : '-'}${CurrencyService.formatAmount(tx.originalAmount, tx.currency)}', // ★ 合併自朋友版(C)：每筆顯示原始幣別
         tx.type == TransactionType.expense ? Colors.red : Colors.green,
@@ -461,6 +537,8 @@ class HomePageState extends State<HomePage> {
               _buildAccountSection(),
 
               const SizedBox(height: 24),
+              if (_reviewError != null)
+                IncomeReviewProblem(problem: _reviewError!, onRetry: reloadIncomeReviews),
               if (groupedListWidgets.isEmpty)
                 const Center(
                   child: Text(
@@ -955,6 +1033,11 @@ class HomePageState extends State<HomePage> {
       // ★ 滑動時的邏輯判斷
       confirmDismiss: (direction) async {
         if (direction == DismissDirection.endToStart) {
+          // 固定收入走同一個「取消本次」流程，保留可復原的當期紀錄。
+          final recurringReview = _incomeReviews[tx.id];
+          if (tx.type == TransactionType.income && recurringReview != null) {
+            return _applyIncomeReview(recurringReview, 'cancel');
+          }
           // 左滑：彈出刪除確認視窗
           final confirmed = await showDialog<bool>(
             context: context,
