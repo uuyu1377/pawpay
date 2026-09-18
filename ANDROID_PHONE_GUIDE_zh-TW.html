@@ -1,0 +1,189 @@
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>PAWPAY v4｜Android 手機逐步教學</title><style>
+:root{color-scheme:light;--ink:#25352f;--muted:#62736b;--green:#315e4c;--line:#dedfd5}
+*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:#f6f5ef;color:var(--ink);font-family:'Microsoft JhengHei','Noto Sans TC','Noto Sans CJK TC',sans-serif;line-height:1.85;font-size:16px}header{background:#315e4c;color:#fff;padding:24px max(20px,calc((100vw - 960px)/2));font-weight:700;letter-spacing:1.4px}header small{display:block;color:#d4e7d9;letter-spacing:0;font-weight:400;font-size:14px}main{max-width:1000px;margin:30px auto 60px;background:#fff;border:1px solid var(--line);border-radius:18px;padding:40px 48px;box-shadow:0 12px 35px #203c2b08}h1{font-size:30px;line-height:1.4;margin:0 0 22px}h2{font-size:23px;line-height:1.5;border-top:1px solid var(--line);padding-top:30px;margin-top:44px;scroll-margin-top:24px}p{margin:14px 0}a{color:#286b86;text-underline-offset:3px}a:hover{color:#184552}li{padding-left:3px;margin:8px 0}pre{background:#f1f5f3;color:#1d4636;padding:18px 20px;border:1px solid #d7e4dd;border-radius:10px;overflow-x:auto;line-height:1.65}code{font-family:Consolas,'Cascadia Code',monospace;font-size:.9em;background:#f0f3ee;padding:2px 5px;border-radius:4px;overflow-wrap:anywhere}pre code{padding:0;background:none;overflow-wrap:normal}table{border-collapse:collapse;width:100%;font-size:14px;margin:24px 0}th,td{border:1px solid var(--line);padding:10px 13px;vertical-align:top;text-align:left}th{background:#eef3ed}details{background:#f3f6ef;border:1px solid var(--line);border-radius:12px;padding:16px 22px;margin:26px 0}summary{cursor:pointer;font-weight:700}details ol{columns:2;column-gap:30px;padding-left:20px}details li{break-inside:avoid;font-size:14px}footer{color:var(--muted);font-size:13px;border-top:1px solid var(--line);margin-top:36px;padding-top:16px}@media(max-width:650px){main{margin:12px 10px;padding:24px 18px;border-radius:12px}h1{font-size:24px}h2{font-size:20px}details ol{columns:1}pre{padding:12px}th,td{padding:8px;font-size:13px}header{padding:18px 20px}body{font-size:15px}}@media print{header,details{display:none}body{background:white}main{border:0;box-shadow:none;margin:0;padding:0}pre,table{break-inside:avoid}h2{break-after:avoid}}
+</style></head><body><header>PAWPAY <small>Windows 電腦 → Android 手機 · 專案執行教學</small></header><main><details open><summary>快速跳到你正在做的步驟</summary><ol><li><a href="#step-1">1. 解壓縮到全英文路徑</a></li><li><a href="#step-2">2. 開啟 CMD 並下載依賴</a></li><li><a href="#step-3">3. 連接你的三星手機</a></li><li><a href="#step-4">4. 建置並安裝到手機</a></li><li><a href="#step-5">5. 測試重設後的兩張地圖</a></li><li><a href="#step-6">6. 扭蛋機與城市</a></li><li><a href="#step-7">7. 固定收入：更新實際運行的後端</a></li><li><a href="#step-8">8. 測試固定收入與辨識錯誤</a></li><li><a href="#step-9">9. 可執行的檢查與 APK</a></li><li><a href="#step-10">常見建置狀況</a></li></ol></details><h1>PAWPAY v4：在你的 Android 手機測試更新</h1>
+<p>更新日期：2026-09-17。本次重設台灣與天空島，保留你已確認喜歡的扭蛋機；提供固定收入 404 的伺服器安裝與排解工具。</p>
+<p>你的 Flutter 3.38.5、Android SDK 和三星手機連線已經成功，<strong>不用重新安裝</strong>。以下指令全部使用 Windows「命令提示字元（CMD）」；不要在指令前加 <code>&amp;</code>。</p>
+<p>已通過 28 項 Python 離線測試、Dart 語法解析與模型幾何檢查。Flutter 工具安裝流程因嘗試存取非專案所需的雲端環境資料而被自動審核阻擋，<strong>未完成 Flutter 分析、Flutter 測試、APK 建置或真機測試</strong>。你收到的是完整原始碼，請用已經安裝好的 Flutter 3.38.5 建置，不必升級套件。</p>
+<h2 id="step-1">1. 解壓縮到全英文路徑</h2>
+<ol>
+<li>下載這次的 <code>Pawpay.zip</code>，舊專案先保留。</li>
+<li>在檔案總管建立 <code>C:\projects\pawpay_v4</code>。</li>
+<li>對 ZIP 按右鍵 →「全部解壓縮」，目的地選上面的資料夾。</li>
+<li>打開解壓縮後的 <code>Pawpay</code>，確認裡面有 <code>pubspec.yaml</code>、<code>lib</code>、<code>android</code>、<code>assets</code>。</li>
+<li>正確專案路徑應為 <code>C:\projects\pawpay_v4\Pawpay</code>。若解壓工具多包了一層，以含有 <code>pubspec.yaml</code> 的那層為準。</li>
+</ol>
+<p>先前的建置錯誤來自 <code>OneDrive - 長庚大學\桌面</code> 這類含中文的路徑。這次直接使用上面的全英文路徑。專案內原有的 <code>lib.zip</code>、<code>assets.zip</code> 是舊備份，<strong>不要解壓覆蓋新程式</strong>。</p>
+<h2 id="step-2">2. 開啟 CMD 並下載依賴</h2>
+<p>按 Windows 開始選單，輸入「cmd」，開啟「命令提示字元」。逐行貼上：</p>
+<pre><code class="language-bat">cd /d C:\projects\pawpay_v4\Pawpay
+&quot;C:\src\flutter\bin\flutter.bat&quot; pub get
+</code></pre>
+<p>看到 <code>Got dependencies!</code> 就可以繼續。「107 packages have newer versions incompatible with dependency constraints」是更新提示，不是建置錯誤，不必先升級套件。</p>
+<p>若看見 <code>No pubspec.yaml file found</code>，請回第一步找正確資料夾。若找不到 <code>flutter.bat</code>，確認 SDK 是否仍在 <code>C:\src\flutter</code>。</p>
+<p>Android Studio 也可以：選 <code>File → Open</code>，開啟 <code>C:\projects\pawpay_v4\Pawpay</code>，SDK 路徑保持 <code>C:\src\flutter</code>。請開整份 Flutter 專案的根目錄。<a href="https://docs.flutter.dev/tools/android-studio">Flutter 官方說明</a></p>
+<h2 id="step-3">3. 連接你的三星手機</h2>
+<ol>
+<li>使用上次成功的 USB 傳輸線接上手機與電腦。</li>
+<li>解鎖手機，確認「開發人員選項 → USB 偵錯」已開啟。</li>
+<li>若跳出「允許 USB 偵錯」，確認是自己的電腦後按允許。</li>
+<li>在同一個 CMD 執行：</li>
+</ol>
+<pre><code class="language-bat">&quot;C:\src\flutter\bin\flutter.bat&quot; devices
+</code></pre>
+<p>先前成功辨識到的手機是 <code>SM A1760</code>，ID 為 <code>R5CY90BGHFL</code>。仍看到它就可以繼續；如果 ID 不同，下一步改用新 ID。<a href="https://developer.android.com/studio/run/device">Android 真機連線說明</a></p>
+<p>如果又顯示「已遭自動封鎖程式封鎖」，這是三星 Auto Blocker 的限制。在自己的手機「設定 → 安全性與隱私權 → 自動封鎖程式」調整後再開 USB 偵錯；選單名稱依版本略有差異。測試結束、不再需要 USB 偵錯時，可關閉偵錯並恢復自動封鎖。<a href="https://www.samsung.com/tw/support/mobile-devices/protect-your-galaxy-device-with-the-new-auto-blocker-feature/">Samsung 官方說明</a></p>
+<h2 id="step-4">4. 建置並安裝到手機</h2>
+<p>保持手機連線，在專案根目錄的 CMD 執行：</p>
+<pre><code class="language-bat">&quot;C:\src\flutter\bin\flutter.bat&quot; run -d R5CY90BGHFL
+</code></pre>
+<p>新資料夾需要重新建置，可能花幾分鐘。<code>Running Gradle task &#39;assembleDebug&#39;</code> 表示正在建置；完成後手機會自動開啟 App。</p>
+<p>也附了 <code>run_on_phone.cmd</code>：雙擊會先下載依賴，再執行 Flutter；有多個裝置時，依提示選 Android 手機。手動指令較方便保留完整錯誤訊息。</p>
+<p>若沿用舊資料夾且有舊建置快取問題，先停止執行中的 App，再執行以下指令；全新解壓通常不需 clean：</p>
+<pre><code class="language-bat">&quot;C:\src\flutter\bin\flutter.bat&quot; clean
+&quot;C:\src\flutter\bin\flutter.bat&quot; pub get
+&quot;C:\src\flutter\bin\flutter.bat&quot; run -d R5CY90BGHFL
+</code></pre>
+<h2 id="step-5">5. 測試重設後的兩張地圖</h2>
+<ol>
+<li>選台灣：房屋應落在島內道路上，中央看得到低山、湖泊、田地與樹木。</li>
+<li>單指左右拖曳旋轉、上下拖曳調整角度；雙指縮放。雙擊或按「重設視角」回到預設。</li>
+<li>原有地名預設分列顯示，點名稱或房屋，下方顯示所有者、等級、地價與租金。</li>
+<li>名稱旁圖示可隱藏地名；下方「全部地點」保留完整清單。放大後超出畫面的地點可透過清單選取或回正。</li>
+<li>正常擲骰測試移動與多人同格，確認頭像仍在畫面內。</li>
+<li>再選天空島：應看見六座浮島、跨島橋、中央城堡和彩虹，建築是圓塔而非台灣小屋。</li>
+<li>確認地名、走格順序和原本事件相同；跨島時棋子沿橋梁拱形移動。</li>
+</ol>
+<p>遊戲地形為原創三維網格，保留柔和的玩具風格。地圖位置是棋盤顯示配置，並非精確地理座標；既有地名與遊戲規則未修改。模型都包含在專案內，不需下載外部 3D 素材。</p>
+<h2 id="step-6">6. 扭蛋機與城市</h2>
+<p>你已確認喜歡的貓耳立體扭蛋機沿用 v3，整份頁面、模型和動畫程式未變更。城市屋頂分類裝飾也保留。本次更新只重設兩張大富翁地圖與整理固定收入的後端安裝工具。</p>
+<h2 id="step-7">7. 固定收入：更新實際運行的後端</h2>
+<p><strong>這一步與安裝手機 App 分開。</strong> 確認／取消／復原需要原本的 Flask 5000 服務安裝 <code>backend_update</code>。在自己電腦解壓前端，不會更新團隊伺服器。</p>
+<p>最新截圖已顯示 <strong>review_service_missing · HTTP 404</strong>，目前連到的服務沒有提供確認端點。只重新下載手機 App 仍會遇到相同錯誤；請後端同學在實際伺服器安裝並重啟。這裡沒有線上部署權限，亦未完成你們伺服器的連線驗證。</p>
+<p>若伺服器由同學管理，將 <strong>Pawpay_Backend_Update.zip</strong> 或專案內整個 <code>backend_update</code> 資料夾交給對方。Windows 可雙擊 <code>02_install_on_server.cmd</code>，貼上現行後端 app.py 路徑，工具會先檢查再備份安裝；務必接著重啟服務。完整說明在 README_zh-TW.md。以下在執行 Flask 的電腦、原本的 Python 環境進行；<code>C:\your_backend\app.py</code> 必須換成現行後端的真實位置：</p>
+<pre><code class="language-bat">cd /d C:\projects\pawpay_v4\Pawpay\backend_update
+python apply_update.py --check &quot;C:\your_backend\app.py&quot;
+python apply_update.py &quot;C:\your_backend\app.py&quot;
+</code></pre>
+<p>檢查通過後才執行實際更新；先保留資料庫備份。工具會備份原始 <code>app.py</code>；已有舊版增補模組時也會備份。它只更新必要檔案，不會自動啟動服務。</p>
+<p>依原有方式<strong>重新啟動 Flask 5000</strong>，再於伺服器執行：</p>
+<pre><code class="language-bat">python check_income_service.py http://127.0.0.1:5000
+</code></pre>
+<p>再從原本能連到 App 的網路，雙擊更新包內的 <code>01_check_service.cmd</code>，確認對外網址也回 API 版本 2。本機成功但對外 404，通常是代理／容器或啟動檔路徑不一致，需要後端同學檢查。</p>
+<p>看到 v2 服務已啟用，代表更新已載入。這項檢查不登入、不讀寫記帳資料，也不檢查 MySQL；完整驗證仍要登入 App 測試收入操作。若顯示舊版，確認有重啟實際執行的服務；若顯示未安裝，核對更新的 <code>app.py</code> 是否就是線上啟動的那份。</p>
+<p>前端沿用 <code>lib/config/backend_config.dart</code> 的 <code>120.126.16.227</code>、5000／8000 埠與 <code>androidEmulator = false</code>，沒有改連線位址。8000 服務照原本方式運作。</p>
+<h2 id="step-8">8. 測試固定收入與辨識錯誤</h2>
+<ol>
+<li>重新登入 App，建立今天到期、容易辨識的一筆測試固定收入。</li>
+<li>回首頁等資料載入。即使沒按確認，也應照原機制自動入帳一次。</li>
+<li>按勾勾「確認」，總額不應再增加。</li>
+<li>按「取消本次」，只移除這一期；下期規則仍保留。</li>
+<li>按「復原」恢復同一筆收入。若提示消失，可從「固定收支」右上角的歷史入口選月份，找到已取消的期次。</li>
+<li>關閉重開 App，取消的期次不應再次自動產生。</li>
+</ol>
+<p>原有固定收入是在啟動 App／回首頁時請後端補登，沒有新增手機背景常駐服務。</p>
+<p>若看到錯誤，點「查看原因」，依診斷碼處理：</p>
+<table>
+<thead>
+<tr>
+<th>提示／診斷</th>
+<th>處理方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>固定收入確認服務尚未啟用／review_service_missing</td>
+<td>依第 7 步安裝後端並重啟，確認 IP 與埠正確</td>
+</tr>
+<tr>
+<td>請重新登入／review_login_required</td>
+<td>登出後使用原方式登入，再回首頁</td>
+</tr>
+<tr>
+<td>review_account_changed</td>
+<td>重新載入目前帳號資料</td>
+</tr>
+<tr>
+<td>review_connection_failed</td>
+<td>確認手機網路與 5000 服務可連線</td>
+</tr>
+<tr>
+<td>review_database_unavailable</td>
+<td>請後端負責人檢查 MySQL 連線及建立資料表的權限</td>
+</tr>
+<tr>
+<td>review_server_error</td>
+<td>請後端負責人查看同時間日誌</td>
+</tr>
+<tr>
+<td>review_conflict</td>
+<td>收入狀態已變更，重試取得最新版本</td>
+</tr>
+<tr>
+<td>review_invalid_request／review_invalid_data／review_invalid_response</td>
+<td>前後端資料不一致，確認兩邊都使用本版</td>
+</tr>
+</tbody></table>
+<p>保留診斷碼與 HTTP 狀態，這比「暫時無法載入」更能定位問題。App 不會把失敗的確認／取消假裝成功。</p>
+<h2 id="step-9">9. 可執行的檢查與 APK</h2>
+<p>在前端根目錄執行：</p>
+<pre><code class="language-bat">cd /d C:\projects\pawpay_v4\Pawpay
+&quot;C:\src\flutter\bin\flutter.bat&quot; analyze
+&quot;C:\src\flutter\bin\flutter.bat&quot; test test/requested_changes_test.dart test/board_and_income_v2_test.dart test/paw_gacha_3d_test.dart test/board_v4_test.dart
+</code></pre>
+<p>Flutter 測試涵蓋地圖手勢、地點清單、標籤間距及固定收入操作／錯誤。測試已附在專案，但交付環境尚未執行。原專案可能有既有的分析提醒；遇到失敗請保留最前面的具體 <code>error</code>。</p>
+<p>後端離線測試不需連線資料庫：</p>
+<pre><code class="language-bat">python -m unittest discover -s backend_update -p &quot;test_*.py&quot; -v
+</code></pre>
+<p>28 項測試包含互動安裝工具、確認／取消／復原、跨帳號隔離、版本衝突、回滾、安裝工具與服務診斷。SQL 透過 SQLite 相容轉接層測試，不能取代 MySQL 行鎖及整合驗證。</p>
+<p>產生可另行安裝的測試 APK：</p>
+<pre><code class="language-bat">&quot;C:\src\flutter\bin\flutter.bat&quot; build apk --debug
+</code></pre>
+<p>成功後檔案在 <code>build\app\outputs\flutter-apk\app-debug.apk</code>。本版沒有調整正式簽章或上架設定。<a href="https://docs.flutter.dev/deployment/android">Flutter Android 建置說明</a></p>
+<h2 id="step-10">常見建置狀況</h2>
+<table>
+<thead>
+<tr>
+<th>狀況</th>
+<th>處理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>「這個時候不應有 &amp;」</td>
+<td>CMD 指令不要加 <code>&amp;</code>，照本教學的完整路徑執行</td>
+</tr>
+<tr>
+<td>project path contains non-ASCII characters</td>
+<td>回第 1 步，移到全英文路徑，不要放中文桌面／OneDrive 路徑</td>
+</tr>
+<tr>
+<td>套件有新版，但 Got dependencies! 成功</td>
+<td>繼續建置，不必為此升級依賴</td>
+</tr>
+<tr>
+<td>手機 unauthorized</td>
+<td>解鎖手機，接受自己的電腦之 USB 偵錯授權</td>
+</tr>
+<tr>
+<td>只看到 Windows／Chrome</td>
+<td>確認 USB 偵錯及資料傳輸線，再執行 devices</td>
+</tr>
+<tr>
+<td>簽章不相容</td>
+<td>保留資料，核對是否使用不同電腦的 debug 簽章，不要直接移除舊 App</td>
+</tr>
+<tr>
+<td>App 開得起來，但登入／交易失敗</td>
+<td>確認原有 Firebase 設定、5000 與 8000 服務正常</td>
+</tr>
+<tr>
+<td>磁碟的空間不足</td>
+<td>先在舊專案根目錄執行 flutter clean 清除可重建的 build 快取，並清理 C 槽或將不用的影片／ZIP 移到其他磁碟；確認 C 槽與專案所在磁碟都有空間後再建置。不要刪 lib、assets 或 android 原始碼</td>
+</tr>
+<tr>
+<td>BUILD FAILED</td>
+<td>保留 What went wrong 與最前面的具體錯誤；最後一句 exit code 1 無法定位原因</td>
+</tr>
+</tbody></table>
+<p>需要重新檢查工具鏈時執行 <code>&quot;C:\src\flutter\bin\flutter.bat&quot; doctor -v</code>。你之前已全部通過，先依本教學更新專案即可。<a href="https://docs.flutter.dev/platform-integration/android/setup">Flutter Android 環境設定</a></p>
+<p>常用指令核對：<a href="https://docs.flutter.dev/reference/flutter-cli">Flutter CLI 官方參考</a>。</p>
+<footer>本文件可離線開啟；官方參考連結需要網路。核對日期：2026-09-17。</footer></main></body></html>
