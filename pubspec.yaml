@@ -80,6 +80,7 @@ flutter:
     - assets/animations/
     - assets/images/
     - assets/pets/
+    - assets/models/
     - assets/iso/
 
 dependency_overrides:

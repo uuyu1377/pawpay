@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
+import 'roof_category_art.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
 import 'package:user_interface/widgets/city_expense_carousel.dart' show CategoryExpense;
@@ -285,7 +286,7 @@ class _IsoCityViewState extends State<IsoCityView>
     final maxX = layout.gxMax * _kTileW / 2 + _kTileW / 2;
     final worldW = maxX - minX + 40;
     final originX = -minX + 20;
-    final originY = 44 + _kFloorH * maxFloors;
+    final originY = 96 + _kFloorH * maxFloors; // 留出屋頂小模型的高度
     final worldH =
         originY + (layout.gxMax + layout.gyMax) * _kTileH / 2 + 76;
 
@@ -395,7 +396,16 @@ class _CityPainter extends CustomPainter {
     for (var k = 1; k < n; k++) {
       _blit(c, 'b_mid_$style', Offset(at.dx, at.dy - _kFloorH * k));
     }
-    _blit(c, _roofKey(n, style), Offset(at.dx, at.dy - _kFloorH * n));
+    final roofKey = _roofKey(n, style);
+    final roofAt = Offset(at.dx, at.dy - _kFloorH * n);
+    _blit(c, roofKey, roofAt);
+    final roofImage = images[roofKey];
+    if (roofImage != null) {
+      // Roof sprites have different heights: anchor to each actual top surface.
+      final top = roofAt.dy + _anchorOf(roofKey) - roofImage.height;
+      final contact = Offset(at.dx - 3, top + (n == 1 ? 14 : 21));
+      RoofCategoryArt.paint(c, items[index].name, contact);
+    }
   }
 
   void _drawSelection(Canvas c, Offset at, Color color) {

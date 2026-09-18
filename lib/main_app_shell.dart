@@ -13,6 +13,7 @@ import 'package:user_interface/services/game_api_service.dart'; // ★ 合併自
 import 'package:user_interface/services/currency_service.dart';
 import 'package:user_interface/services/notification_service.dart';
 import 'package:user_interface/services/recurring_api_service.dart';
+import 'package:user_interface/services/recurring_income_review_service.dart';
 
 import 'pages/home_page.dart';
 import 'pages/playground_page.dart';
@@ -319,8 +320,7 @@ class _MainAppShellState extends State<MainAppShell> {
     super.initState();
     _loadScanMode();
     _loadUserProfile();
-    // AI 公告需要 Token，背景取得，不阻塞首頁
-    _getAuthToken();
+    // 由 _processRecurringThenLoad 等登入憑證準備好，再載入收入確認。
     _processRecurringThenLoad().then((_) {
       // 確保資料載入完畢後，再檢查是否要彈出總結
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -344,6 +344,8 @@ class _MainAppShellState extends State<MainAppShell> {
 
   Future<void> _processRecurringThenLoad() async {
     try {
+      // Wait for the existing token initialization before loading income reviews.
+      await _getAuthToken();
       final created = await RecurringApiService.instance.processDue();
       if (created > 0) debugPrint('✅ 已自動建立 $created 筆到期固定收支');
     } catch (e) {
@@ -2718,6 +2720,17 @@ class _MainAppShellState extends State<MainAppShell> {
   }
 
   // ★★★ 新增：處理刪除交易紀錄 (滑動刪除) ★★★
+  Future<void> _handleRecurringIncomeChanged(RecurringIncomeReview review) async {
+    if (!mounted) return;
+    if (review.isCancelled) {
+      // Update the shared ledger immediately after the server confirms success.
+      // Every total/analysis reads this same list, not a second local ledger.
+      setState(() => _transactions = _transactions
+        .where((tx) => tx.id != review.transactionId).toList());
+    }
+    await _loadData();
+  }
+
   Future<void> _deleteTransaction(String id) async {
     // ★ 解開註解：正式從資料庫刪除
     await DatabaseHelper.instance.deleteTransaction(int.parse(id));
@@ -3108,6 +3121,7 @@ class _MainAppShellState extends State<MainAppShell> {
                 onAiAnalyzeRequest: _handleVoiceAnalysis,
                 onDeleteTransaction: _deleteTransaction,
                 onEditTransaction: _editTransaction,
+                onRecurringIncomeChanged: _handleRecurringIncomeChanged,
                 defaultCurrencyCode: _currencyCode,
               )
                   : const Center(
