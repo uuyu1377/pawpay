@@ -27,24 +27,27 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
   // 本地抽獎池（weight 總和 = 1000，對應百分比 × 10）
   // ★ 依手寫標註(A)更新：銘謝惠顧 50%、狗狗/貓咪各 12%、鸚鵡 5%/樹懶 4%/狐狸 4%、
   //   稀有(柴柴/博美/諾姆/甩尾)各 2%、稀有(愛心/工作/等待/火箭)各 1%、傳說 0.5/0.3/0.2%
+  // ★ 修改：跟後端 main.py 的新機率表同步(銘謝惠顧 90%、普通 7%、稀有 2.8%、傳說 0.2%)，
+  //   避免「連得到網路時機率很低、一斷線反而變很高」這種線上線下不一致的情況。
+  //   weight 單位是 ‱(萬分之一)，總和 10000。
   static const List<Map<String, dynamic>> _gachaPool = [
-    {'key': null,          'name': '銘謝惠顧', 'weight': 500},
-    {'key': 'dog',         'name': '狗狗',     'weight': 120},
-    {'key': 'cat',         'name': '貓咪',     'weight': 120},
-    {'key': 'parrot',      'name': '鸚鵡',     'weight': 50},
-    {'key': 'sloth',       'name': '樹懶',     'weight': 40},
-    {'key': 'fox',         'name': '狐狸',     'weight': 40},
-    {'key': 'cute_dog',    'name': '柴柴',     'weight': 20},
-    {'key': 'pomeranian',  'name': '博美犬',   'weight': 20},
-    {'key': 'norm_dog',    'name': '諾姆犬',   'weight': 20},
-    {'key': 'wagging_dog', 'name': '甩尾狗',   'weight': 20},
-    {'key': 'lovely_cat',  'name': '愛心貓',   'weight': 10},
-    {'key': 'blue_cat',    'name': '工作貓',   'weight': 10},
-    {'key': 'loader_cat',  'name': '等待貓',   'weight': 10},
-    {'key': 'rocket_cat',  'name': '火箭貓',   'weight': 10},
-    {'key': 'bear',        'name': '熊熊',     'weight': 5},
-    {'key': 'bee',         'name': '蜜蜂',     'weight': 3},
-    {'key': 'giraffe',     'name': '長頸鹿',   'weight': 2},
+    {'key': null,          'name': '銘謝惠顧', 'weight': 9000},
+    {'key': 'dog',         'name': '狗狗',     'weight': 227},
+    {'key': 'cat',         'name': '貓咪',     'weight': 227},
+    {'key': 'parrot',      'name': '鸚鵡',     'weight': 95},
+    {'key': 'sloth',       'name': '樹懶',     'weight': 76},
+    {'key': 'fox',         'name': '狐狸',     'weight': 75},
+    {'key': 'cute_dog',    'name': '柴柴',     'weight': 47},
+    {'key': 'pomeranian',  'name': '博美犬',   'weight': 47},
+    {'key': 'norm_dog',    'name': '諾姆犬',   'weight': 47},
+    {'key': 'wagging_dog', 'name': '甩尾狗',   'weight': 46},
+    {'key': 'lovely_cat',  'name': '愛心貓',   'weight': 23},
+    {'key': 'blue_cat',    'name': '工作貓',   'weight': 23},
+    {'key': 'loader_cat',  'name': '等待貓',   'weight': 23},
+    {'key': 'rocket_cat',  'name': '火箭貓',   'weight': 24},
+    {'key': 'bear',        'name': '熊熊',     'weight': 10},
+    {'key': 'bee',         'name': '蜜蜂',     'weight': 6},
+    {'key': 'giraffe',     'name': '長頸鹿',   'weight': 4},
   ];
 
   @override
@@ -91,7 +94,7 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
   // 本地抽獎（伺服器離線時使用）
   Map<String, dynamic>? _runLocalGacha() {
     final rng = Random();
-    final roll = rng.nextInt(1000);
+    final roll = rng.nextInt(10000); // ★ 修改：配合新的 weight 精度(萬分之一)，從 1000 改成 10000
     int cumulative = 0;
     for (final entry in _gachaPool) {
       cumulative += entry['weight'] as int;
@@ -146,7 +149,9 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
       }
 
       // cost=0：8000 API 只負責抽獎/新增寵物，不再扣玩家 money。
-      final apiResult = await GameApiService.instance.gachaDraw(cost: 0);
+      // ★ 修正：同樣的 userId=1 預設值 bug，補上真正登入的 user_id
+      final realUserId = await GameApiService.instance.resolveCurrentUserId();
+      final apiResult = await GameApiService.instance.gachaDraw(userId: realUserId, cost: 0);
       final pet = apiResult['pet'];
       if (pet is Map) {
         final type = (pet['species_name'] ?? pet['icon_key'] ?? 'dog').toString();
@@ -178,29 +183,29 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     return Scaffold(
       backgroundColor: palette.bg,
       appBar: AppBar(backgroundColor: palette.bg, elevation: 0,
-        foregroundColor: palette.accentInk,
-        title: Text('寵物扭蛋', style: TextStyle(fontSize: 18,
-          color: palette.ink, fontWeight: FontWeight.w600))),
+          foregroundColor: palette.accentInk,
+          title: Text('寵物扭蛋', style: TextStyle(fontSize: 18,
+              color: palette.ink, fontWeight: FontWeight.w600))),
       body: SafeArea(top: false, child: LayoutBuilder(builder: (context, box) {
         final machineWidth = min(max(0.0, box.maxWidth - 40), 360.0);
         return SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
           child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 420),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              _buildCoinBadge(),
-              const SizedBox(height: 10),
-              TextButton.icon(onPressed: _openMissions,
-                icon: const Icon(Icons.task_alt_rounded, size: 19),
-                label: const Text('查看任務與領取扭蛋幣', textAlign: TextAlign.center)),
-              OutlinedButton.icon(onPressed: _openPetChoiceShop,
-                icon: const Icon(Icons.card_giftcard_rounded, size: 19),
-                label: const Text('寵物自選商店（NT\$200／張）', textAlign: TextAlign.center)),
-              const SizedBox(height: 6),
-              SizedBox(width: machineWidth, child: PawGachaMachine3D(
-                roll: _rollController, drop: _dropController)),
-              const SizedBox(height: 12),
-              _buildActionBtn(),
-            ]))),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                _buildCoinBadge(),
+                const SizedBox(height: 10),
+                TextButton.icon(onPressed: _openMissions,
+                    icon: const Icon(Icons.task_alt_rounded, size: 19),
+                    label: const Text('查看任務與領取扭蛋幣', textAlign: TextAlign.center)),
+                OutlinedButton.icon(onPressed: _openPetChoiceShop,
+                    icon: const Icon(Icons.card_giftcard_rounded, size: 19),
+                    label: const Text('寵物自選商店（NT\$200／張）', textAlign: TextAlign.center)),
+                const SizedBox(height: 6),
+                SizedBox(width: machineWidth, child: PawGachaMachine3D(
+                    roll: _rollController, drop: _dropController)),
+                const SizedBox(height: 12),
+                _buildActionBtn(),
+              ]))),
         );
       })),
     );
@@ -211,12 +216,12 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 11),
       decoration: BoxDecoration(color: palette.card, borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: palette.line), boxShadow: palette.cardShadow),
+          border: Border.all(color: palette.line), boxShadow: palette.cardShadow),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
         const Icon(Icons.stars_rounded, color: Color(0xFFE3B465)),
         const SizedBox(width: 8),
         Flexible(child: Text("$_userCoins 扭蛋幣", style: TextStyle(fontSize: 17,
-          fontWeight: FontWeight.bold, color: palette.ink))),
+            fontWeight: FontWeight.bold, color: palette.ink))),
       ]),
     );
   }
@@ -236,9 +241,9 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
             boxShadow: _isRolling ? [] : palette.cardShadow,
           ),
           child: Text(_isRolling ? "扭動中..." : "消耗 10 扭蛋幣 扭一次",
-            textAlign: TextAlign.center,
-            style: TextStyle(color: !_isRolling && ThemeData.estimateBrightnessForColor(palette.accent) == Brightness.dark
-              ? Colors.white : palette.ink, fontSize: 17, fontWeight: FontWeight.bold)),
+              textAlign: TextAlign.center,
+              style: TextStyle(color: !_isRolling && ThemeData.estimateBrightnessForColor(palette.accent) == Brightness.dark
+                  ? Colors.white : palette.ink, fontSize: 17, fontWeight: FontWeight.bold)),
         ),
       )),
     );

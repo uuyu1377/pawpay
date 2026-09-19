@@ -180,6 +180,24 @@ class GameApiService {
     await _dio.post('$baseUrl/game/friends', data: {'user_id': userId, 'friend_id': friendId});
   }
 
+  // ★★★ 新增：查詢「別人送給我、我還沒回應」的好友邀請 ★★★
+  Future<List<Map<String, dynamic>>> fetchFriendRequests({int userId = 1}) async {
+    final res = await _dio.get('$baseUrl/game/friends/requests', queryParameters: {'user_id': userId});
+    return _asListOfMaps(res.data);
+  }
+
+  // ★★★ 新增：接受或拒絕一筆好友邀請。action 只能是 'accept' 或 'reject' ★★★
+  Future<void> respondFriendRequest({
+    int userId = 1,
+    required int fromUserId,
+    required String action,
+  }) async {
+    await _dio.post(
+      '$baseUrl/game/friends/respond',
+      data: {'user_id': userId, 'from_user_id': fromUserId, 'action': action},
+    );
+  }
+
   Future<Map<String, dynamic>> fetchMonsterStatus({int userId = 1}) async {
     final res = await _dio.get('$baseUrl/game/monster/status', queryParameters: {'user_id': userId});
     return _asMap(res.data);

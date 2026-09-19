@@ -48,7 +48,12 @@ class _AddFriendPageState extends State<AddFriendPage>
     setState(() => _isLoading = true);
     try {
       final api = GameApiService.instance;
-      final results = await Future.wait([api.fetchFriends(), api.fetchRecommendedFriends()]);
+      // ★ 修正：同樣補上真正登入的 user_id
+      final realUserId = await api.resolveCurrentUserId();
+      final results = await Future.wait([
+        api.fetchFriends(userId: realUserId),
+        api.fetchRecommendedFriends(userId: realUserId),
+      ]);
       if (!mounted) return;
       setState(() { _friends = results[0]; _users = results[1]; _isLoading = false; });
     } catch (_) {
@@ -62,7 +67,9 @@ class _AddFriendPageState extends State<AddFriendPage>
     if (q.isEmpty) { await _loadRecommended(); return; }
     setState(() => _isLoading = true);
     try {
-      final users = await GameApiService.instance.searchUsers(query: q);
+      // ★ 修正：同樣補上真正登入的 user_id
+      final realUserId = await GameApiService.instance.resolveCurrentUserId();
+      final users = await GameApiService.instance.searchUsers(userId: realUserId, query: q);
       if (!mounted) return;
       setState(() { _users = users; _isLoading = false; });
     } catch (e) {
@@ -81,7 +88,9 @@ class _AddFriendPageState extends State<AddFriendPage>
 
   Future<void> _addFriendById(int id, {String? label}) async {
     try {
-      await GameApiService.instance.addFriend(friendId: id);
+      // ★ 修正：同樣補上真正登入的 user_id，避免加到共用帳號的好友清單裡
+      final realUserId = await GameApiService.instance.resolveCurrentUserId();
+      await GameApiService.instance.addFriend(userId: realUserId, friendId: id);
       if (!mounted) return;
       _snack('已送出好友邀請${label != null ? '給 $label' : ''}！');
     } catch (e) {
