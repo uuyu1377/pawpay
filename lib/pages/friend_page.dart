@@ -14,6 +14,8 @@ class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateM
   bool _isLoading = true;
   List<Map<String, dynamic>> _friends = [];
   List<Map<String, dynamic>> _leaderboard = [];
+  List<Map<String, dynamic>> _pendingRequests = []; // ★ 新增：別人送給我、我還沒回應的好友邀請
+  int _currentUserId = 1; // ★ 新增：真正登入的 user_id，預設 1 只是備用值，_loadAll() 會立刻覆蓋成真正的值
 
   @override
   void initState() {
@@ -32,15 +34,21 @@ class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateM
     setState(() => _isLoading = true);
     try {
       final api = GameApiService.instance;
+      // ★ 修正：跟大富翁/寵物同一種 bug，原本沒傳 userId 就會用寫死的預設值 1，
+      //   抓到的會是共用帳號的好友清單，不是使用者自己的。
+      _currentUserId = await api.resolveCurrentUserId();
       final results = await Future.wait([
-        api.fetchFriends(),
-        api.fetchLeaderboard().catchError((_) => <Map<String, dynamic>>[]),
+        api.fetchFriends(userId: _currentUserId),
+        api.fetchLeaderboard(userId: _currentUserId).catchError((_) => <Map<String, dynamic>>[]),
+        // ★ 新增：一起抓「別人送給我的邀請」
+        api.fetchFriendRequests(userId: _currentUserId).catchError((_) => <Map<String, dynamic>>[]),
       ]);
       if (!mounted) return;
       setState(() {
-        _friends     = results[0];
-        _leaderboard = results[1];
-        _isLoading   = false;
+        _friends         = results[0];
+        _leaderboard     = results[1];
+        _pendingRequests = results[2]; // ★ 新增
+        _isLoading       = false;
       });
     } catch (_) {
       if (!mounted) return;
@@ -49,6 +57,25 @@ class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateM
   }
 
   // ── helpers ───────────────────────────────────────────────────────────────
+
+  // ★ 新增：回應一筆好友邀請(接受/拒絕)
+  Future<void> _respondRequest(int fromUserId, String action) async {
+    try {
+      await GameApiService.instance.respondFriendRequest(
+        userId: _currentUserId,
+        fromUserId: fromUserId,
+        action: action,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(action == 'accept' ? '已成為好友！' : '已拒絕這筆邀請')),
+      );
+      await _loadAll();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('操作失敗：$e')));
+    }
+  }
 
   String _name(Map<String, dynamic> m) =>
       (m['nickname'] ?? m['display_name'] ?? m['username'] ?? '玩家').toString();
@@ -102,12 +129,83 @@ class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateM
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Colors.pink))
           : RefreshIndicator(
-              onRefresh: _loadAll,
-              child: TabBarView(
-                controller: _tabController,
-                children: [_buildFriendList(), _buildLeaderboard()],
-              ),
-            ),
+        onRefresh: _loadAll,
+        child: TabBarView(
+          controller: _tabController,
+          // ★ 修改：好友列表分頁上方多加一段「待確認邀請」區塊，沒有邀請時它自己會是空的，不佔畫面
+          children: [
+            Column(children: [
+              _buildPendingRequests(),
+              Expanded(child: _buildFriendList()),
+            ]),
+            _buildLeaderboard(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── 待確認邀請區塊 ────────────────────────────────────────────────────────
+
+  // ★ 新增：顯示「別人送給我、我還沒回應」的好友邀請，可以直接接受或拒絕
+  Widget _buildPendingRequests() {
+    if (_pendingRequests.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.pink.shade50,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.pink.shade100),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '待確認的好友邀請 (${_pendingRequests.length})',
+            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.brown, fontSize: 15),
+          ),
+          const SizedBox(height: 10),
+          ..._pendingRequests.map((req) {
+            final name = _name(req);
+            final fromUserId = req['from_user_id'] is int
+                ? req['from_user_id'] as int
+                : int.tryParse(req['from_user_id']?.toString() ?? '') ?? 0;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(children: [
+                CircleAvatar(
+                  radius: 18,
+                  backgroundColor: _avatarColor(name),
+                  child: Text(name.isNotEmpty ? name.substring(0, 1) : '?',
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                ),
+                TextButton(
+                  onPressed: () => _respondRequest(fromUserId, 'reject'),
+                  child: const Text('拒絕', style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  onPressed: () => _respondRequest(fromUserId, 'accept'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.pink,
+                    foregroundColor: Colors.white,
+                    shape: const StadiumBorder(),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                  child: const Text('接受'),
+                ),
+              ]),
+            );
+          }),
+        ],
+      ),
     );
   }
 
@@ -234,8 +332,10 @@ class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateM
       itemBuilder: (_, i) {
         if (i == 0) return _leaderboardHeader();
         final entry = rankList[i - 1];
+        // ★ 修正：原本寫死比對字串 '1'，導致所有 user_id=1 底下的資料都被誤判成「我」；
+        //   改成跟真正登入的 _currentUserId 比對。
         final isMe = (entry['is_me'] as bool?) == true ||
-            entry['user_id']?.toString() == '1';
+            entry['user_id']?.toString() == _currentUserId.toString();
         return _rankRow(rank: i, entry: entry, isMe: isMe);
       },
     );
@@ -248,7 +348,7 @@ class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateM
         const Text('🏆', style: TextStyle(fontSize: 28)),
         const SizedBox(width: 8),
         Text(
-          '代幣排行榜',
+          '資產排行榜',
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.brown.shade700),
         ),
       ]),
@@ -261,10 +361,10 @@ class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateM
     final badgeColor = rank == 1
         ? const Color(0xFFFFD700)
         : rank == 2
-            ? const Color(0xFFC0C0C0)
-            : rank == 3
-                ? const Color(0xFFCD7F32)
-                : Colors.grey.shade300;
+        ? const Color(0xFFC0C0C0)
+        : rank == 3
+        ? const Color(0xFFCD7F32)
+        : Colors.grey.shade300;
 
     final name  = _name(entry);
     final money = _money(entry);
@@ -280,8 +380,8 @@ class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateM
           color: isMe
               ? Colors.pink.shade200
               : rank <= 3
-                  ? badgeColor.withOpacity(0.6)
-                  : Colors.transparent,
+              ? badgeColor.withOpacity(0.6)
+              : Colors.transparent,
           width: isMe || rank <= 3 ? 1.5 : 0,
         ),
         boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 6, offset: const Offset(0, 2))],
@@ -293,16 +393,16 @@ class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateM
           child: medal != null
               ? Text(medal, style: const TextStyle(fontSize: 22), textAlign: TextAlign.center)
               : Container(
-                  width: 28, height: 28,
-                  decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
-                  child: Center(
-                    child: Text('$rank',
-                        style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                            color: rank <= 3 ? Colors.white : Colors.grey.shade700)),
-                  ),
-                ),
+            width: 28, height: 28,
+            decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
+            child: Center(
+              child: Text('$rank',
+                  style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: rank <= 3 ? Colors.white : Colors.grey.shade700)),
+            ),
+          ),
         ),
         const SizedBox(width: 8),
         // 寵物 emoji
