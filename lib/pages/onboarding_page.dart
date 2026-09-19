@@ -315,26 +315,37 @@ class _OnboardingPageState extends State<OnboardingPage> {
                       offset: const Offset(0, 8)),
                   ],
                 ),
-                child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-                  SizedBox(height: diameter * .38,
-                    child: AnimatedSwitcher(duration: duration,
-                      child: received
-                        ? SizedBox(key: const ValueKey('received'), width: diameter * .63,
-                            child: const PawCapsuleStage(open: false))
-                        : Icon(zone['icon'] as IconData, key: const ValueKey('waiting'),
-                            size: diameter * .28, color: p.accentInk),
+                // 圓圈扣除邊框與內距後，再依實際寬、高縮放整組內容。
+                // 只縮放個別文字的寬度，無法避免手機字型較高時的底部溢出。
+                child: LayoutBuilder(builder: (context, contentBox) {
+                  return FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.center,
+                    child: SizedBox(
+                      width: contentBox.maxWidth,
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        SizedBox(height: diameter * .38,
+                          child: AnimatedSwitcher(duration: duration,
+                            child: received
+                              ? SizedBox(key: const ValueKey('received'), width: diameter * .63,
+                                  child: const PawCapsuleStage(open: false))
+                              : Icon(zone['icon'] as IconData, key: const ValueKey('waiting'),
+                                  size: diameter * .28, color: p.accentInk),
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        FittedBox(fit: BoxFit.scaleDown,
+                          child: Text(zone['label'] as String,
+                            style: TextStyle(color: p.ink, fontSize: 13, fontWeight: FontWeight.w800))),
+                        const SizedBox(height: 3),
+                        FittedBox(fit: BoxFit.scaleDown,
+                          child: Text(received ? '接住你了！' : (hovering ? '放開，選擇我' : '拖曳到這裡'),
+                            style: TextStyle(color: active ? p.accentInk : p.ink2,
+                              fontSize: 10, fontWeight: active ? FontWeight.w700 : FontWeight.w500))),
+                      ]),
                     ),
-                  ),
-                  const SizedBox(height: 3),
-                  FittedBox(fit: BoxFit.scaleDown,
-                    child: Text(zone['label'] as String,
-                      style: TextStyle(color: p.ink, fontSize: 13, fontWeight: FontWeight.w800))),
-                  const SizedBox(height: 3),
-                  FittedBox(fit: BoxFit.scaleDown,
-                    child: Text(received ? '接住你了！' : (hovering ? '放開，選擇我' : '拖曳到這裡'),
-                      style: TextStyle(color: active ? p.accentInk : p.ink2,
-                        fontSize: 10, fontWeight: active ? FontWeight.w700 : FontWeight.w500))),
-                ]),
+                  );
+                }),
               ),
             ),
           );
