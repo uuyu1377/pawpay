@@ -7,7 +7,7 @@ import '../widgets/island_board_3d.dart';
 
 import '../theme/app_palette.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:lottie/lottie.dart';
+import '../data/pet_skill_data.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // ★ 新增：讀取使用者實際選的寵物 key，修復大富翁沒圖片的問題
 
@@ -59,7 +59,18 @@ const Map<String, String> _kPetImageMap = {
   'bee': 'assets/pets/bee_action.png',
   'giraffe': 'assets/pets/giraffe_action.png',
 };
+// 電腦三隻代表角色
+const String _kDefaultBoardImage =
+    'assets/pets/pawpay_app_icon1.png';
 
+const String _kComputerImage1 =
+    'assets/pets/bunny_bow.png';
+
+const String _kComputerImage2 =
+    'assets/pets/hamster_foodie.png';
+
+const String _kComputerImage3 =
+    'assets/pets/otter_leaf.png';
 // --- 核心資料模型 ---
 enum BlockType { land, start, jail, chance, tax, goJail }
 enum MapTheme { taiwan, magicIsland }
@@ -312,20 +323,82 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   Future<void> _persistAllPlayers() async { for (final p in _players) await _persistPlayerState(p); }
   Future<void> _persistAllBlocks()  async { for (final b in _currentPath) await _persistBlockState(b); }
 
-  @override
-  void initState() {
-    super.initState();
-    _initPlayers();
-    _ensureSelectedPetImageLoaded(); // ★ 新增：修補「沒先選過寵物就直接進大富翁」時圖片是空白的問題
-    _initShakeSensor();
-    final autoMap = widget.initialMapTheme ?? SelectedPet.lastMapTheme;
-    if (autoMap != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _startGame(autoMap);
+  Future<void> _loadCurrentPetSkill() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final key = prefs.getString('current_pet_key');
+
+      if (!mounted) return;
+
+      setState(() {
+        _currentPetKey = key;
       });
+
+      debugPrint('🎮 大富翁目前寵物：$_currentPetKey');
+    } catch (e) {
+      debugPrint('❌ 讀取寵物技能失敗：$e');
     }
   }
 
+  @override
+  void initState() {
+    super.initState();
+
+    _initPlayers();
+    _ensureSelectedPetImageLoaded();
+    _loadCurrentPetSkill();
+
+    _initShakeSensor();
+
+    final autoMap =
+        widget.initialMapTheme ?? SelectedPet.lastMapTheme;
+
+    if (autoMap != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _startGame(autoMap);
+        }
+      });
+    }
+  }
+// =========================================================
+// 寵物技能
+// =========================================================
+
+  String? _currentPetKey;
+
+  bool _activeSkillUsed = false;
+
+// 已經觸發過的一次性被動技能
+  final Set<String> _usedPassiveSkills = {};
+
+// 狗狗：下一次骰骰子時重新骰一次
+  bool _dogRerollReady = false;
+
+// 貓咪：下一次骰子點數 -2
+  bool _catLightStepReady = false;
+
+// 狐狸：下一次購地 / 升級 7 折
+  bool _foxDiscountReady = false;
+
+// 佛系狗：下一次負面機會免疫
+  bool _calmDogProtection = false;
+
+// 博美：下一次收到租金 ×1.5
+  bool _pomeranianRentBoost = false;
+
+// 等待貓：下一次租金延後
+  bool _waitingCatDelayRent = false;
+
+// 延後租金資料
+  int _deferredRent = 0;
+  int? _deferredRentOwnerId;
+
+// 等待貓：不買土地後，下回合 +800
+  bool _waitingCatInterestReady = false;
+
+// 蜜蜂：本回合結束後再多一次行動
+  bool _beeExtraTurnReady = false;
   // ★★★ 新增：如果玩家 0（使用者）目前沒有寵物圖片，去讀取使用者實際選的寵物 key 補回來 ★★★
   Future<void> _ensureSelectedPetImageLoaded() async {
     if (_players.isEmpty || _players[0].animationPath != null) return; // 已經有圖片了，不用處理
@@ -432,10 +505,14 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   ];
 
   void _initPlayers() {
-    final petAnim  = widget.petAnimationPath ?? SelectedPet.animationPath;
-    final petEmoji = widget.petEmoji         ?? SelectedPet.emoji;
-    final petName  = widget.petName          ?? SelectedPet.name ?? "您";
-    final petColor = widget.petColor         ?? SelectedPet.color ?? const Color(0xFF2196F3);
+    final petAnim = widget.petAnimationPath ??
+        SelectedPet.animationPath ??
+        _kDefaultBoardImage;
+
+    final petEmoji = widget.petEmoji ?? SelectedPet.emoji;
+    final petName = widget.petName ?? SelectedPet.name ?? "您";
+    final petColor =
+        widget.petColor ?? SelectedPet.color ?? const Color(0xFF2196F3);
 
     _players = [
       Player(
@@ -446,16 +523,34 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         animationPath: petAnim,
         emoji: petEmoji,
       ),
-      Player(id: 1, name: "小明", color: const Color(0xFFE53935), icon: Icons.face_rounded,
-          animationPath: 'assets/animations/Cat.json', emoji: '🐱'),
-      Player(id: 2, name: "小華", color: const Color(0xFF43A047), icon: Icons.face_retouching_natural_rounded,
-          animationPath: 'assets/animations/Fox.json', emoji: '🦊'),
-      Player(id: 3, name: "系統", color: const Color(0xFFFF9800), icon: Icons.computer_rounded,
-          animationPath: 'assets/animations/Parrot.json', emoji: '🦜'),
+      Player(
+        id: 1,
+        name: "小明",
+        color: const Color(0xFFE53935),
+        icon: Icons.face_rounded,
+        animationPath: _kComputerImage1, // bunny_bow
+        emoji: '🐰',
+      ),
+      Player(
+        id: 2,
+        name: "小華",
+        color: const Color(0xFF43A047),
+        icon: Icons.face_retouching_natural_rounded,
+        animationPath: _kComputerImage2, // hamster_foodie
+        emoji: '🐹',
+      ),
+      Player(
+        id: 3,
+        name: "系統",
+        color: const Color(0xFFFF9800),
+        icon: Icons.computer_rounded,
+        animationPath: _kComputerImage3, // otter_leaf
+        emoji: '🦦',
+      ),
     ];
+
     _currentPlayerIdx = 0;
   }
-
   void _initShakeSensor() {
     _accelerometerSub = accelerometerEvents.listen((event) {
       if (!_gameStarted || _gameOver || _isRolling || _currentPlayerIdx != 0) return;
@@ -472,96 +567,1129 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     _accelerometerSub?.cancel();
     super.dispose();
   }
+  Future<void> _usePetSkill() async {
+    if (_currentPetKey == null) {
+      return;
+    }
 
-  void _rollDice() async {
+    if (_activeSkillUsed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            '這局已經使用過主動技能了',
+          ),
+        ),
+      );
+
+      return;
+    }
+
+    if (_currentPlayerIdx != 0 ||
+        _isRolling ||
+        _gameOver) {
+      return;
+    }
+
+    final player = _players[0];
+
+    switch (_currentPetKey) {
+    // ===================================================
+    // 狗
+    // ===================================================
+
+      case 'dog':
+        setState(() {
+          _dogRerollReady = true;
+          _activeSkillUsed = true;
+        });
+
+        _addLog(
+          '🐶 再試一次已準備！下一次擲骰會重新擲一次',
+        );
+        break;
+
+    // ===================================================
+    // 貓
+    // ===================================================
+
+      case 'cat':
+        setState(() {
+          _catLightStepReady = true;
+          _activeSkillUsed = true;
+        });
+
+        _addLog(
+          '🐱 輕盈腳步已準備！下一次移動點數 -2',
+        );
+        break;
+
+    // ===================================================
+    // 鸚鵡
+    // ===================================================
+
+      case 'parrot':
+        int index = player.pathStep;
+        int distance = 0;
+
+        do {
+          index =
+              (index + 1) %
+                  _currentPath.length;
+
+          distance++;
+        } while (
+        _currentPath[index].type !=
+            BlockType.chance
+        );
+
+        setState(() {
+          _activeSkillUsed = true;
+        });
+
+        _addLog(
+          '🦜 預言家：下一個機會格還有 $distance 格',
+        );
+        break;
+
+    // ===================================================
+    // 樹懶
+    // ===================================================
+
+      case 'sloth':
+        setState(() {
+          player.money += 1500;
+          _activeSkillUsed = true;
+        });
+
+        _persistPlayerState(player);
+
+        _addLog(
+          '🦥 休息一下！跳過回合並獲得 \$1500',
+        );
+
+        _endTurn();
+        break;
+
+    // ===================================================
+    // 狐狸
+    // ===================================================
+
+      case 'fox':
+        setState(() {
+          _foxDiscountReady = true;
+          _activeSkillUsed = true;
+        });
+
+        _addLog(
+          '🦊 討價還價！下一次購地或升級享 7 折',
+        );
+        break;
+
+    // ===================================================
+    // 柴犬
+    // ===================================================
+
+      case 'cute_dog':
+        setState(() {
+          _activeSkillUsed = true;
+          _isRolling = true;
+        });
+
+        _addLog(
+          '🔥 暴衝！立即額外前進 3 格',
+        );
+
+        await _movePlayer(
+          player,
+          3,
+        );
+
+        if (mounted) {
+          setState(() {
+            _isRolling = false;
+          });
+        }
+
+        break;
+
+    // ===================================================
+    // 博美
+    // ===================================================
+
+      case 'pomeranian':
+        setState(() {
+          _pomeranianRentBoost =
+          true;
+
+          _activeSkillUsed =
+          true;
+        });
+
+        _addLog(
+          '✨ 人氣爆棚！下一次收到租金 ×1.5',
+        );
+        break;
+
+    // ===================================================
+    // 佛系狗
+    // ===================================================
+
+      case 'norm_dog':
+        setState(() {
+          _calmDogProtection =
+          true;
+
+          _activeSkillUsed =
+          true;
+        });
+
+        _addLog(
+          '😌 隨緣散步！下一次負面機會事件無效',
+        );
+        break;
+
+    // ===================================================
+    // 黏人狗
+    // ===================================================
+
+      case 'wagging_dog':
+        final targets =
+        _players
+            .where(
+              (p) =>
+          p.id != 0 &&
+              !p.isBankrupt,
+        )
+            .toList();
+
+        if (targets.isEmpty) return;
+
+        final target = targets.first;
+
+        setState(() {
+          target.pathStep =
+              (target.pathStep + 2) %
+                  _currentPath.length;
+
+          _activeSkillUsed =
+          true;
+        });
+
+        _persistPlayerState(target);
+
+        _addLog(
+          '🐕 跟我來！${target.name} 被一起帶著前進 2 格',
+        );
+        break;
+
+    // ===================================================
+    // 愛心貓
+    // ===================================================
+
+      case 'lovely_cat':
+        setState(() {
+          player.money += 2500;
+
+          _activeSkillUsed =
+          true;
+        });
+
+        _persistPlayerState(player);
+
+        _addLog(
+          '💗 治癒時間！立即獲得 \$2500',
+        );
+        break;
+
+    // ===================================================
+    // 工作貓
+    // ===================================================
+
+      case 'blue_cat':
+        final owned =
+        _currentPath
+            .where(
+              (b) =>
+          b.ownerId == 0 &&
+              b.type ==
+                  BlockType.land &&
+              b.level < 3,
+        )
+            .toList();
+
+        if (owned.isEmpty) {
+          ScaffoldMessenger.of(context)
+              .showSnackBar(
+            const SnackBar(
+              content: Text(
+                '目前沒有可以升級的土地',
+              ),
+            ),
+          );
+
+          return;
+        }
+
+        final block = owned.first;
+
+        setState(() {
+          block.level++;
+          _activeSkillUsed = true;
+        });
+
+        _persistBlockState(block);
+
+        _addLog(
+          '💼 加班模式！${block.name} 免費升級至 Lv.${block.level}',
+        );
+        break;
+
+    // ===================================================
+    // 火箭貓
+    // ===================================================
+
+      case 'rocket_cat':
+        int targetIndex =
+            player.pathStep;
+
+        int steps = 0;
+
+        do {
+          targetIndex =
+              (targetIndex + 1) %
+                  _currentPath.length;
+
+          steps++;
+        } while (
+        _currentPath[targetIndex]
+            .type !=
+            BlockType.chance
+        );
+
+        setState(() {
+          _activeSkillUsed = true;
+          _isRolling = true;
+        });
+
+        _addLog(
+          '🚀 發射！直接前往下一個機會格',
+        );
+
+        await _movePlayer(
+          player,
+          steps,
+        );
+
+        if (mounted) {
+          setState(() {
+            _isRolling = false;
+          });
+        }
+
+        break;
+
+    // ===================================================
+    // 等待貓
+    // ===================================================
+
+      case 'loader_cat':
+        setState(() {
+          _waitingCatDelayRent =
+          true;
+
+          _activeSkillUsed =
+          true;
+        });
+
+        _addLog(
+          '⏳ 等等再說！下一次租金延後支付',
+        );
+        break;
+
+    // ===================================================
+    // 熊
+    // ===================================================
+
+      case 'bear':
+        setState(() {
+          player.money += 2000;
+          _activeSkillUsed = true;
+        });
+
+        _persistPlayerState(player);
+
+        _addLog(
+          '🐻 午睡時間！跳過回合並獲得 \$2000',
+        );
+
+        _endTurn();
+        break;
+
+    // ===================================================
+    // 蜜蜂
+    // ===================================================
+
+      case 'bee':
+        setState(() {
+          _beeExtraTurnReady =
+          true;
+
+          _activeSkillUsed =
+          true;
+        });
+
+        _addLog(
+          '🐝 超時工作！這回合結束後可以再行動一次',
+        );
+        break;
+
+    // ===================================================
+    // 長頸鹿
+    // ===================================================
+
+      case 'giraffe':
+        _showGiraffeSkillDialog();
+        break;
+    }
+  }
+  void _showGiraffeSkillDialog() {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title:
+          const Text(
+            '🦒 看得更遠',
+          ),
+          content:
+          const Text(
+            '選擇要前進幾格',
+          ),
+          actions: [
+            for (int i = 1;
+            i <= 6;
+            i++)
+              TextButton(
+                onPressed: () async {
+                  Navigator.pop(ctx);
+
+                  setState(() {
+                    _activeSkillUsed =
+                    true;
+
+                    _isRolling =
+                    true;
+                  });
+
+                  _addLog(
+                    '🦒 看得更遠！選擇前進 $i 格',
+                  );
+
+                  await _movePlayer(
+                    _players[0],
+                    i,
+                  );
+
+                  if (mounted) {
+                    setState(() {
+                      _isRolling =
+                      false;
+                    });
+                  }
+                },
+                child: Text(
+                  '$i',
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _rollDice() async {
     if (_isRolling || _gameOver || !_gameStarted) return;
+
     final p = _players[_currentPlayerIdx];
 
-    // 監獄：扣除一回合，繼續跳過
+    // =====================================================
+    // 等待貓：支付上一回合延後的租金
+    // =====================================================
+
+    if (p.id == 0 &&
+        _deferredRent > 0 &&
+        _deferredRentOwnerId != null) {
+      final owner = _players[_deferredRentOwnerId!];
+
+      setState(() {
+        p.money -= _deferredRent;
+        owner.money += _deferredRent;
+      });
+
+      _addLog(
+        '⏳ 延後租金到期！支付 \$${_fmt(_deferredRent)} 給 ${owner.name}',
+      );
+
+      _deferredRent = 0;
+      _deferredRentOwnerId = null;
+
+      _persistPlayerState(p);
+      _persistPlayerState(owner);
+
+      _checkLovelyCatGuard();
+
+      if (p.money <= 0) {
+        _endTurn();
+        return;
+      }
+    }
+
+    // =====================================================
+    // 等待貓：耐心利息
+    // =====================================================
+
+    if (p.id == 0 &&
+        _currentPetKey == 'loader_cat' &&
+        _waitingCatInterestReady) {
+      setState(() {
+        p.money += 800;
+        _waitingCatInterestReady = false;
+      });
+
+      _addLog('⏳ 耐心利息發動！獲得 \$800');
+
+      _persistPlayerState(p);
+    }
+
+    // =====================================================
+    // 長頸鹿被動：預覽前面三格
+    // =====================================================
+
+    if (p.id == 0 &&
+        _currentPetKey == 'giraffe') {
+      final previews = <String>[];
+
+      for (int i = 1; i <= 3; i++) {
+        final index =
+            (p.pathStep + i) % _currentPath.length;
+
+        previews.add(
+          _currentPath[index].name,
+        );
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '🦒 遠見：前方三格 → ${previews.join('、')}',
+            ),
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+
+    // =====================================================
+    // 監獄
+    // =====================================================
+
     if (p.jailTurns > 0) {
-      setState(() => p.jailTurns--);
-      _addLog("${p.name} 在監獄中，還剩 ${p.jailTurns} 回合");
+      setState(() {
+        p.jailTurns--;
+      });
+
+      _addLog(
+        '${p.name} 在監獄中，還剩 ${p.jailTurns} 回合',
+      );
+
       _endTurn();
       return;
     }
 
-    setState(() => _isRolling = true);
-    await Future.delayed(const Duration(milliseconds: 650));
-    if (!mounted || _gameOver) { setState(() => _isRolling = false); return; }
     setState(() {
-      _diceValues = [Random().nextInt(6) + 1, Random().nextInt(6) + 1];
-      _movePlayer(p, _diceValues[0] + _diceValues[1]);
-      _isRolling = false;
+      _isRolling = true;
     });
+
+    await Future.delayed(
+      const Duration(milliseconds: 650),
+    );
+
+    if (!mounted || _gameOver) {
+      setState(() {
+        _isRolling = false;
+      });
+      return;
+    }
+
+    int dice1 = Random().nextInt(6) + 1;
+    int dice2 = Random().nextInt(6) + 1;
+
+    // =====================================================
+    // 狗狗主動：重新骰一次
+    // =====================================================
+
+    if (p.id == 0 && _dogRerollReady) {
+      final firstTotal = dice1 + dice2;
+
+      dice1 = Random().nextInt(6) + 1;
+      dice2 = Random().nextInt(6) + 1;
+
+      _dogRerollReady = false;
+
+      _addLog(
+        '🐶 再試一次！原本 $firstTotal 點，重新擲出 ${dice1 + dice2} 點',
+      );
+    }
+
+    int steps = dice1 + dice2;
+
+    // =====================================================
+    // 貓咪主動：點數 -2
+    // =====================================================
+
+    if (p.id == 0 && _catLightStepReady) {
+      steps = max(1, steps - 2);
+
+      _catLightStepReady = false;
+
+      _addLog(
+        '🐱 輕盈腳步！本回合調整為 $steps 格',
+      );
+    }
+
+    // =====================================================
+    // 柴犬被動：雙骰額外 +1 格
+    // =====================================================
+
+    if (p.id == 0 &&
+        _currentPetKey == 'cute_dog' &&
+        dice1 == dice2) {
+      steps += 1;
+
+      _addLog(
+        '🔥 熱血衝刺！骰到雙骰，額外前進 1 格',
+      );
+    }
+
+    setState(() {
+      _diceValues = [dice1, dice2];
+    });
+
+    await _movePlayer(
+      p,
+      steps,
+    );
+
+    if (mounted) {
+      setState(() {
+        _isRolling = false;
+      });
+    }
   }
 
   // 每走一格的節奏。從 180ms 放慢到 420ms，讓玩家看得見棋子一步一步走過去。
-  static const Duration _stepInterval = Duration(milliseconds: 420);
+  static const Duration _stepInterval =
+  Duration(milliseconds: 420);
 
-  void _movePlayer(Player p, int steps) async {
+  Future<void> _movePlayer(
+      Player p,
+      int steps,
+      ) async {
     for (int i = 0; i < steps; i++) {
       await Future.delayed(_stepInterval);
+
       if (!mounted) return;
-      setState(() => p.pathStep = (p.pathStep + 1) % _currentPath.length);
+
+      final oldStep = p.pathStep;
+
+      setState(() {
+        p.pathStep =
+            (p.pathStep + 1) %
+                _currentPath.length;
+      });
+
+      // ===================================================
+      // 經過起點
+      // ===================================================
+
+      if (oldStep != 0 &&
+          p.pathStep == 0) {
+        _handlePassStart(p);
+      }
     }
+
     _handleLandingEvent(p);
+  }
+  void _handlePassStart(Player p) {
+    if (p.id != 0) return;
+
+    switch (_currentPetKey) {
+      case 'wagging_dog':
+        setState(() {
+          p.money += 500;
+        });
+
+        _addLog(
+          '🐕 一起玩！經過起點額外獲得 \$500',
+        );
+        break;
+
+      case 'bear':
+        setState(() {
+          p.money += 1000;
+        });
+
+        _addLog(
+          '🐻 吃飽再走！經過起點獲得 \$1000',
+        );
+        break;
+
+      case 'bee':
+        setState(() {
+          p.money += 1200;
+        });
+
+        _addLog(
+          '🐝 辛勤工作！經過起點獲得 \$1200',
+        );
+        break;
+    }
+
+    _persistPlayerState(p);
   }
 
   void _handleLandingEvent(Player p) {
-    final block = _currentPath[p.pathStep];
+    final block =
+    _currentPath[p.pathStep];
+
     switch (block.type) {
-      case BlockType.land:    _handleLandEvent(p, block); break;
-      case BlockType.chance:  _handleChanceEvent(p); break;
+      case BlockType.land:
+        _handleLandEvent(
+          p,
+          block,
+        );
+        break;
+
+      case BlockType.chance:
+        _handleChanceEvent(p);
+        break;
+
       case BlockType.goJail:
-        _addLog("${p.name} 觸發禁閉事件！");
-        p.pathStep = 9; p.jailTurns = 3;
-        _persistPlayerState(p); _endTurn(); break;
-      default: _endTurn();
+        int jailTurns = 3;
+
+        // 樹懶被動
+        if (p.id == 0 &&
+            _currentPetKey == 'sloth') {
+          jailTurns = 2;
+
+          _addLog(
+            '🦥 慢慢來！監獄時間減少 1 回合',
+          );
+        } else {
+          _addLog(
+            '${p.name} 觸發禁閉事件！',
+          );
+        }
+
+        p.pathStep = 9;
+        p.jailTurns = jailTurns;
+
+        _persistPlayerState(p);
+
+        _endTurn();
+        break;
+
+      default:
+        _endTurn();
     }
   }
 
-  void _handleLandEvent(Player p, GameNode block) {
+  void _handleLandEvent(
+      Player p,
+      GameNode block,
+      ) {
+    // =====================================================
+    // 無主土地
+    // =====================================================
+
     if (block.ownerId == null) {
-      // 無主地：詢問是否購買
       if (p.id == 0) {
-        if (p.money >= block.baseCost) {
-          _showBuildDialog(p, block);
+        final buildCost =
+        _getBuildCost(p, block);
+
+        if (p.money >= buildCost) {
+          _showBuildDialog(
+            p,
+            block,
+          );
         } else {
-          _addLog("資金不足，無法購買 ${block.name}");
+          _addLog(
+            '資金不足，無法購買 ${block.name}',
+          );
+
           _endTurn();
         }
+
         return;
       }
-      // AI 購買邏輯
+
+      // 電腦玩家
       if (p.money >= block.baseCost) {
-        setState(() { p.money -= block.baseCost; block.ownerId = p.id; block.level = 1; });
-        _persistPlayerState(p); _persistBlockState(block);
-        _addLog("${p.name} 佔領了 ${block.name}");
+        setState(() {
+          p.money -= block.baseCost;
+          block.ownerId = p.id;
+          block.level = 1;
+        });
+
+        _persistPlayerState(p);
+        _persistBlockState(block);
+
+        _addLog(
+          '${p.name} 佔領了 ${block.name}',
+        );
       }
+
       _endTurn();
-    } else if (block.ownerId == p.id) {
-      // 自己的地：詢問升級
-      if (block.level < 3 && p.id == 0 && p.money >= (block.baseCost * 0.6).toInt()) {
-        _showUpgradeDialog(p, block);
-        return;
-      }
-      _endTurn();
-    } else {
-      // 他人的地：繳租金
-      final rent = block.rent;
-      setState(() { p.money -= rent; _players[block.ownerId!].money += rent; });
-      _persistPlayerState(p); _persistPlayerState(_players[block.ownerId!]);
-      _addLog("${p.name} 支付租金 \$${_fmt(rent)} 給 ${_players[block.ownerId!].name}");
-      _endTurn();
+      return;
     }
+
+    // =====================================================
+    // 自己土地
+    // =====================================================
+
+    if (block.ownerId == p.id) {
+      if (block.level < 3 &&
+          p.id == 0) {
+        final upgradeCost =
+        _getUpgradeCost(
+          p,
+          block,
+        );
+
+        if (p.money >= upgradeCost) {
+          _showUpgradeDialog(
+            p,
+            block,
+          );
+
+          return;
+        }
+      }
+
+      _endTurn();
+      return;
+    }
+
+    // =====================================================
+    // 踩到別人的土地
+    // =====================================================
+
+    int rent = block.rent;
+
+    final owner =
+    _players[block.ownerId!];
+
+    // -----------------------------------------------------
+    // 貓咪被動：第一次租金減半
+    // -----------------------------------------------------
+
+    if (p.id == 0 &&
+        _currentPetKey == 'cat' &&
+        !_usedPassiveSkills.contains(
+          'cat_rent',
+        )) {
+      rent = (rent * 0.5).round();
+
+      _usedPassiveSkills.add(
+        'cat_rent',
+      );
+
+      _addLog(
+        '🐱 優雅閃避！本次租金減少 50%',
+      );
+    }
+
+    // -----------------------------------------------------
+    // 佛系狗：第一次金錢損失減半
+    // -----------------------------------------------------
+
+    if (p.id == 0 &&
+        _currentPetKey == 'norm_dog' &&
+        !_usedPassiveSkills.contains(
+          'calm_loss',
+        )) {
+      rent = (rent * 0.5).round();
+
+      _usedPassiveSkills.add(
+        'calm_loss',
+      );
+
+      _addLog(
+        '😌 看開一點！本次租金損失減少 50%',
+      );
+    }
+
+    // -----------------------------------------------------
+    // 等待貓：延後租金
+    // -----------------------------------------------------
+
+    if (p.id == 0 &&
+        _currentPetKey == 'loader_cat' &&
+        _waitingCatDelayRent) {
+      _waitingCatDelayRent = false;
+
+      _deferredRent = rent;
+      _deferredRentOwnerId =
+          block.ownerId;
+
+      _addLog(
+        '⏳ 等等再說！\$${_fmt(rent)} 租金延後到下個回合支付',
+      );
+
+      _endTurn();
+      return;
+    }
+
+    // -----------------------------------------------------
+    // 博美：收到租金
+    // -----------------------------------------------------
+
+    if (owner.id == 0 &&
+        _currentPetKey == 'pomeranian') {
+      if (_pomeranianRentBoost) {
+        rent =
+            (rent * 1.5).round();
+
+        _pomeranianRentBoost = false;
+
+        _addLog(
+          '✨ 人氣爆棚！本次租金提升為 1.5 倍',
+        );
+      } else if (
+      !_usedPassiveSkills.contains(
+        'pomeranian_rent',
+      )) {
+        rent =
+            (rent * 1.25).round();
+
+        _usedPassiveSkills.add(
+          'pomeranian_rent',
+        );
+
+        _addLog(
+          '✨ 明星光環！第一次租金增加 25%',
+        );
+      }
+    }
+
+    setState(() {
+      p.money -= rent;
+      owner.money += rent;
+    });
+
+    _persistPlayerState(p);
+    _persistPlayerState(owner);
+
+    _addLog(
+      '${p.name} 支付租金 \$${_fmt(rent)} 給 ${owner.name}',
+    );
+
+    _checkLovelyCatGuard();
+
+    _endTurn();
+  }
+  int _getBuildCost(
+      Player p,
+      GameNode block,
+      ) {
+    int cost = block.baseCost;
+
+    if (p.id != 0) {
+      return cost;
+    }
+
+    if (_currentPetKey == 'fox') {
+      // 主動技能優先
+      if (_foxDiscountReady) {
+        return (cost * 0.7).round();
+      }
+
+      // 被動：第一次購地 8 折
+      if (!_usedPassiveSkills.contains(
+        'fox_first_buy',
+      )) {
+        return (cost * 0.8).round();
+      }
+    }
+
+    return cost;
+  }
+
+
+  int _getUpgradeCost(
+      Player p,
+      GameNode block,
+      ) {
+    int cost =
+    (block.baseCost * 0.6).round();
+
+    if (p.id != 0) {
+      return cost;
+    }
+
+    // 狐狸主動
+    if (_currentPetKey == 'fox' &&
+        _foxDiscountReady) {
+      cost = (cost * 0.7).round();
+    }
+
+    // 工作貓被動
+    if (_currentPetKey == 'blue_cat') {
+      cost = (cost * 0.9).round();
+    }
+
+    return cost;
   }
 
   void _handleChanceEvent(Player p) {
-    final delta = Random().nextBool() ? 5000 : -2000;
-    p.money += delta;
+    int delta =
+    Random().nextBool()
+        ? 5000
+        : -2000;
+
+    if (p.id == 0) {
+      // ===================================================
+      // 正面事件
+      // ===================================================
+
+      if (delta > 0) {
+        if (_currentPetKey == 'parrot') {
+          delta =
+              (delta * 1.15).round();
+
+          _addLog(
+            '🦜 消息靈通！機會獎勵增加 15%',
+          );
+        }
+
+        if (_currentPetKey ==
+            'rocket_cat') {
+          delta =
+              (delta * 1.20).round();
+
+          _addLog(
+            '🚀 冒險加成！機會獎勵增加 20%',
+          );
+        }
+      }
+
+      // ===================================================
+      // 負面事件
+      // ===================================================
+
+      if (delta < 0) {
+        // 佛系狗主動：完全免疫
+        if (_currentPetKey ==
+            'norm_dog' &&
+            _calmDogProtection) {
+          delta = 0;
+
+          _calmDogProtection =
+          false;
+
+          _addLog(
+            '😌 隨緣散步！本次負面事件完全無效',
+          );
+        }
+
+        // 狗狗被動
+        else if (_currentPetKey ==
+            'dog' &&
+            !_usedPassiveSkills.contains(
+              'dog_chance',
+            )) {
+          delta =
+              (delta * 0.5).round();
+
+          _usedPassiveSkills.add(
+            'dog_chance',
+          );
+
+          _addLog(
+            '🐶 幸運尾巴！第一次負面事件損失減半',
+          );
+        }
+
+        // 佛系狗被動
+        else if (_currentPetKey ==
+            'norm_dog' &&
+            !_usedPassiveSkills.contains(
+              'calm_loss',
+            )) {
+          delta =
+              (delta * 0.5).round();
+
+          _usedPassiveSkills.add(
+            'calm_loss',
+          );
+
+          _addLog(
+            '😌 看開一點！金錢損失減半',
+          );
+        }
+      }
+    }
+
+    setState(() {
+      p.money += delta;
+    });
+
     _persistPlayerState(p);
-    _addLog("${p.name} ${delta > 0 ? '獲得' : '損失'} \$${delta.abs()} 機遇事件！");
+
+    _checkLovelyCatGuard();
+
+    if (delta == 0) {
+      _addLog(
+        '${p.name} 成功避開機遇事件的損失！',
+      );
+    } else {
+      _addLog(
+        '${p.name} ${delta > 0 ? '獲得' : '損失'} \$${delta.abs()} 機遇事件！',
+      );
+    }
+
     _endTurn();
+  }
+  void _checkLovelyCatGuard() {
+    if (_currentPetKey !=
+        'lovely_cat') {
+      return;
+    }
+
+    if (_usedPassiveSkills.contains(
+      'lovely_guard',
+    )) {
+      return;
+    }
+
+    final player = _players[0];
+
+    if (player.money < 5000) {
+      setState(() {
+        player.money += 2000;
+      });
+
+      _usedPassiveSkills.add(
+        'lovely_guard',
+      );
+
+      _persistPlayerState(player);
+
+      _addLog(
+        '💗 暖心守護！資金低於 \$5000，自動補助 \$2000',
+      );
+    }
   }
 
   void _endTurn() {
@@ -587,7 +1715,19 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       setState(() { _gameOver = true; _gameLog = "${alive.first.name} 獲得最終勝利！本月冒險結束"; });
       return;
     }
+    // 蜜蜂主動：再行動一次
+    if (_currentPlayerIdx == 0 &&
+        _beeExtraTurnReady) {
+      setState(() {
+        _beeExtraTurnReady = false;
+      });
 
+      _addLog(
+        '🐝 超時工作發動！再行動一次',
+      );
+
+      return;
+    }
     // 找下一個未破產的玩家
     int next = (_currentPlayerIdx + 1) % _players.length;
     while (_players[next].isBankrupt) {
@@ -608,14 +1748,45 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   }
 
   void _startGame(MapTheme theme) {
-    SelectedPet.lastMapTheme = theme;
+    SelectedPet.lastMapTheme =
+        theme;
+
     setState(() {
       _initMapData(theme);
       _initPlayers();
+
       _gameStarted = true;
       _gameOver = false;
+
       _isLoadingGameState = true;
+
+      // ==============================
+      // 每局技能全部重置
+      // ==============================
+
+      _activeSkillUsed = false;
+
+      _usedPassiveSkills.clear();
+
+      _dogRerollReady = false;
+      _catLightStepReady = false;
+
+      _foxDiscountReady = false;
+
+      _calmDogProtection = false;
+
+      _pomeranianRentBoost = false;
+
+      _waitingCatDelayRent = false;
+
+      _waitingCatInterestReady = false;
+
+      _deferredRent = 0;
+      _deferredRentOwnerId = null;
+
+      _beeExtraTurnReady = false;
     });
+
     _loadGameStateFromApi(theme);
   }
 
@@ -804,19 +1975,12 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                             shape: BoxShape.circle,
                             color: p.color.withOpacity(isActive ? 1.0 : 0.45),
                           ),
-                          child: p.id == 0 && p.animationPath != null
+                          child: p.animationPath != null
                               ? Padding(
                             padding: const EdgeInsets.all(3),
                             child: Image.asset(
                               p.animationPath!,
                               fit: BoxFit.contain,
-                            ),
-                          )
-                              : p.animationPath != null
-                              ? Center(
-                            child: Text(
-                              p.emoji ?? '🐾',
-                              style: const TextStyle(fontSize: 16),
                             ),
                           )
                               : Icon(
@@ -893,6 +2057,8 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     final isMagic = _currentTheme == MapTheme.magicIsland;
     final canRoll  = !_gameOver && !_isRolling && _currentPlayerIdx == 0;
     final accent = isMagic ? const Color(0xFFBA68C8) : const Color(0xFF66BB6A);
+    final skill =
+    getPetSkill(_currentPetKey);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 0, 14, 10),
@@ -918,44 +2084,109 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                     child: Dice3D(value: v, isRolling: _isRolling, isMagic: isMagic),
                   )).toList(),
                 ),
-                ElevatedButton(
-                  onPressed: canRoll ? _rollDice : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: canRoll ? accent : Colors.grey.shade300,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 13),
-                    shape: const StadiumBorder(),
-                    elevation: canRoll ? 4 : 0,
-                  ),
-                  child: Text(
-                    _isRolling ? "擲中..." : (_gameOver ? "遊戲結束" : (_currentPlayerIdx == 0 ? "出發！" : "電腦回合")),
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
-                  ),
-                ),
-                InkWell(
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PetPage())),
-                  customBorder: const CircleBorder(),
-                  child: Container(
-                    width: 52, height: 52,
-                    decoration: BoxDecoration(
-                      color: (_players[0].color).withOpacity(0.15),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: _players[0].color, width: 2),
-                      boxShadow: [BoxShadow(color: _players[0].color.withOpacity(0.3), blurRadius: 8)],
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(2),
-                      child: Image.asset(
-                        _players[0].animationPath ??
-                            SelectedPet.animationPath ??
-                            'assets/pets/dog_action.png',
-                        fit: BoxFit.contain,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+    Column(
+    mainAxisSize:
+    MainAxisSize.min,
+    children: [
+    ElevatedButton(
+    onPressed:
+    canRoll
+    ? _rollDice
+        : null,
+
+    style:
+    ElevatedButton.styleFrom(
+    backgroundColor:
+    canRoll
+    ? accent
+        : Colors.grey.shade300,
+
+    foregroundColor:
+    Colors.white,
+
+    padding:
+    const EdgeInsets.symmetric(
+    horizontal: 22,
+    vertical: 11,
+    ),
+
+    shape:
+    const StadiumBorder(),
+    ),
+
+    child: Text(
+    _isRolling
+    ? '擲中...'
+        : (_currentPlayerIdx == 0
+    ? '出發！'
+        : '電腦回合'),
+    ),
+    ),
+
+    if (skill != null) ...[
+    const SizedBox(height: 4),
+
+    SizedBox(
+    height: 30,
+    child: ElevatedButton.icon(
+    onPressed:
+    canRoll &&
+    !_activeSkillUsed
+    ? _usePetSkill
+        : null,
+
+    icon:
+    Icon(
+    skill.skillIcon,
+    size: 14,
+    ),
+
+    label:
+    Text(
+    _activeSkillUsed
+    ? '技能已使用'
+        : skill.activeName,
+
+    style:
+    const TextStyle(
+    fontSize: 10,
+    fontWeight:
+    FontWeight.bold,
+    ),
+    ),
+
+    style:
+    ElevatedButton.styleFrom(
+    backgroundColor:
+    const Color(
+    0xFFFFA726,
+    ),
+
+    foregroundColor:
+    Colors.white,
+
+    disabledBackgroundColor:
+    Colors.grey.shade300,
+
+    disabledForegroundColor:
+    Colors.grey.shade600,
+
+    padding:
+    const EdgeInsets.symmetric(
+    horizontal: 10,
+    ),
+
+    shape:
+    const StadiumBorder(),
+    ),
+    ),
+    ),
+    ],
+    ],
+    ),
+    ],
             ),
+
           ),
         ),
       ),
@@ -1052,41 +2283,130 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
   // --- 遊戲結束 ---
   // --- 對話框 ---
-  void _showBuildDialog(Player p, GameNode b) {
+  void _showBuildDialog(
+      Player p,
+      GameNode b,
+      ) {
+    final cost =
+    _getBuildCost(
+      p,
+      b,
+    );
+
     showDialog(
       context: context,
-      builder: (ctx) => _gameDialog(
-        title: "🏗 抵達 ${b.name}",
-        content: "基礎建設費用 \$${_fmt(b.baseCost)}\n您的資金 \$${_fmt(p.money)}\n要投資嗎？",
-        cancelLabel: "路過",
-        confirmLabel: "確認建設",
-        onConfirm: () {
-          setState(() { p.money -= b.baseCost; b.ownerId = p.id; b.level = 1; });
-          _persistPlayerState(p); _persistBlockState(b);
-          _addLog("${p.name} 佔領了 ${b.name}！");
-          Navigator.pop(ctx); _endTurn();
-        },
-        onCancel: () { Navigator.pop(ctx); _endTurn(); },
-      ),
+      builder: (ctx) =>
+          _gameDialog(
+            title: '🏗 抵達 ${b.name}',
+            content:
+            '基礎建設費用 \$${_fmt(cost)}\n'
+                '您的資金 \$${_fmt(p.money)}\n'
+                '要投資嗎？',
+            cancelLabel: '路過',
+            confirmLabel: '確認建設',
+
+            onConfirm: () {
+              setState(() {
+                p.money -= cost;
+
+                b.ownerId = p.id;
+                b.level = 1;
+
+                if (_currentPetKey ==
+                    'fox' &&
+                    _foxDiscountReady) {
+                  _foxDiscountReady =
+                  false;
+                } else if (
+                _currentPetKey ==
+                    'fox') {
+                  _usedPassiveSkills.add(
+                    'fox_first_buy',
+                  );
+                }
+              });
+
+              _persistPlayerState(p);
+              _persistBlockState(b);
+
+              _addLog(
+                '${p.name} 佔領了 ${b.name}！',
+              );
+
+              Navigator.pop(ctx);
+
+              _endTurn();
+            },
+
+            onCancel: () {
+              // 等待貓被動
+              if (_currentPetKey ==
+                  'loader_cat') {
+                _waitingCatInterestReady =
+                true;
+
+                _addLog(
+                  '⏳ 耐心等待！下回合將獲得 \$800',
+                );
+              }
+
+              Navigator.pop(ctx);
+
+              _endTurn();
+            },
+          ),
     );
   }
 
-  void _showUpgradeDialog(Player p, GameNode b) {
-    final cost = (b.baseCost * 0.6).toInt();
+  void _showUpgradeDialog(
+      Player p,
+      GameNode b,
+      ) {
+    final cost =
+    _getUpgradeCost(
+      p,
+      b,
+    );
+
     showDialog(
       context: context,
-      builder: (ctx) => _gameDialog(
-        title: "⬆️ 升級 ${b.name}",
-        content: "升級費用 \$${_fmt(cost)}\n升至 Lv.${b.level + 1}，租金提升！\n您的資金 \$${_fmt(p.money)}",
-        cancelLabel: "取消",
-        confirmLabel: "確認升級",
-        onConfirm: () {
-          setState(() { p.money -= cost; b.level += 1; });
-          _persistPlayerState(p); _persistBlockState(b);
-          Navigator.pop(ctx); _endTurn();
-        },
-        onCancel: () { Navigator.pop(ctx); _endTurn(); },
-      ),
+      builder: (ctx) =>
+          _gameDialog(
+            title: '⬆️ 升級 ${b.name}',
+            content:
+            '升級費用 \$${_fmt(cost)}\n'
+                '升至 Lv.${b.level + 1}，租金提升！\n'
+                '您的資金 \$${_fmt(p.money)}',
+            cancelLabel: '取消',
+            confirmLabel: '確認升級',
+
+            onConfirm: () {
+              setState(() {
+                p.money -= cost;
+                b.level += 1;
+
+                if (_currentPetKey ==
+                    'fox' &&
+                    _foxDiscountReady) {
+                  _foxDiscountReady =
+                  false;
+                }
+              });
+
+              _persistPlayerState(p);
+              _persistBlockState(b);
+
+              Navigator.pop(ctx);
+
+              _endTurn();
+            },
+
+            onCancel: () {
+              Navigator.pop(ctx);
+
+              _endTurn();
+            },
+          ),
     );
   }
 

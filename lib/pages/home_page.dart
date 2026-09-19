@@ -128,7 +128,7 @@ class HomePageState extends State<HomePage> {
 
   // ★★★ 新增：當前「上戰場」寵物的 emoji，會跟著 current_pet_key 改變 ★★★
   // 預設 🐶 是為了對應「蛋階段（尚未選寵物）」時後端預設用狗狗語氣講話，讓臉跟語氣一致
-  String _currentPetKey = 'dog';
+  String? _currentPetKey;
 
   // ★★★ 來自合併：動態分類相關變數 ★★★
   late Future<List<Map<String, dynamic>>> _quickExpenseFuture;
@@ -192,8 +192,7 @@ class HomePageState extends State<HomePage> {
     try {
       final prefs = await SharedPreferences.getInstance();
 
-      final petKey =
-          prefs.getString('current_pet_key') ?? 'dog';
+      final petKey = prefs.getString('current_pet_key');
 
       if (!mounted) return;
 
@@ -620,14 +619,17 @@ class HomePageState extends State<HomePage> {
                 child: _showAiComment
                     ? Center(
                   child: Image.asset(
-                    _petImageMap[_currentPetKey]
-                        ?? 'assets/pets/dog_action.png',
-
-                    // ★ 跟原本 fontSize: 32 的 emoji 接近
-                    width: 35,
-                    height: 35,
-
+                    _currentPetKey != null
+                        ? (_petImageMap[_currentPetKey] ??
+                        'assets/pets/pawpay_app_icon1.png')
+                        : 'assets/pets/pawpay_app_icon1.png',
                     fit: BoxFit.contain,
+                    errorBuilder: (context, error, stackTrace) {
+                      return Image.asset(
+                        'assets/pets/pawpay_app_icon1.png',
+                        fit: BoxFit.contain,
+                      );
+                    },
                   ),
                 )
                     : const Icon(

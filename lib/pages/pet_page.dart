@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // ★★★ 新增：引入本地儲存庫 ★★★
-
+import '../data/pet_skill_data.dart';
 import 'gacha_page.dart';
 import 'playground_page.dart';
 import 'package:user_interface/services/game_api_service.dart';
@@ -27,7 +27,228 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
     Color(0xFFFFF7F2),
     Color(0xFFFFEFE8),
   ];
+  void _showPetSkillSheet(
+      BuildContext context,
+      String petKey,
+      Color accentColor,
+      ) {
+    final skill = getPetSkill(petKey);
 
+    if (skill == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('目前沒有技能資料'),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(
+            22,
+            16,
+            22,
+            28,
+          ),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(
+              top: Radius.circular(28),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 42,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade300,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                Row(
+                  children: [
+                    Container(
+                      width: 46,
+                      height: 46,
+                      decoration: BoxDecoration(
+                        color: accentColor.withOpacity(0.12),
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        skill.skillIcon,
+                        color: accentColor,
+                        size: 25,
+                      ),
+                    ),
+
+                    const SizedBox(width: 12),
+
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${skill.displayName} 專屬技能',
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            skill.personality,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 22),
+
+                _buildSkillInfoCard(
+                  title: '被動技能｜${skill.passiveName}',
+                  description: skill.passiveDescription,
+                  icon: Icons.shield_rounded,
+                  accentColor: accentColor,
+                ),
+
+                const SizedBox(height: 12),
+
+                _buildSkillInfoCard(
+                  title: '主動技能｜${skill.activeName}',
+                  description: skill.activeDescription,
+                  icon: Icons.auto_awesome_rounded,
+                  accentColor: accentColor,
+                ),
+
+                const SizedBox(height: 16),
+
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: accentColor.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 17,
+                        color: accentColor,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '主動技能每局只能使用一次，被動技能會依條件自動觸發。',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: Colors.grey.shade700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+  Widget _buildSkillInfoCard({
+    required String title,
+    required String description,
+    required IconData icon,
+    required Color accentColor,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: accentColor.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: accentColor.withOpacity(0.20),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: accentColor.withOpacity(0.13),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              size: 20,
+              color: accentColor,
+            ),
+          ),
+
+          const SizedBox(width: 12),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: accentColor,
+                  ),
+                ),
+
+                const SizedBox(height: 5),
+
+                Text(
+                  description,
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.45,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static const String _ghostImage =
+      'assets/pets/ghost.png';
   // All pet types
   static const List<Map<String, dynamic>> _allPetTypes = [
     // ── 原有 5 隻 ──────────────────────────────────────────────────────────
@@ -262,9 +483,35 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       for (final pet in pets) {
         final key = (pet['icon_key'] ?? pet['species_name'] ?? 'dog').toString();
         unlockedMap[key] = {
-          'id': int.tryParse(pet['id']?.toString() ?? '') ?? 0,
-          'name': (pet['name'] ?? pet['species_name'] ?? '寵物').toString(),
-          'satiety': (_toDouble(pet['satiety'], fallback: 0.45).clamp(0.0, 1.0) as num).toDouble(),
+          'id':
+          int.tryParse(
+            pet['id']?.toString() ?? '',
+          ) ??
+              0,
+
+          'name':
+          (
+              pet['name'] ??
+                  pet['species_name'] ??
+                  '寵物'
+          ).toString(),
+
+          'satiety':
+          (
+              _toDouble(
+                pet['satiety'],
+                fallback: 0.45,
+              ).clamp(0.0, 1.0) as num
+          ).toDouble(),
+
+          'is_dead':
+          pet['is_dead'] == true ||
+              pet['is_dead'] == 1 ||
+              pet['is_dead']?.toString() == '1',
+
+          'dead_at':
+          pet['dead_at'],
+
           'from_choice_ticket': false,
         };
       }
@@ -275,9 +522,32 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
           final key = raw['species_key']?.toString() ?? '';
           if (key.isEmpty || unlockedMap.containsKey(key)) continue;
           unlockedMap[key] = {
-            'id': int.tryParse(raw['id']?.toString() ?? '') ?? 0,
-            'name': (raw['species_name'] ?? '寵物').toString(),
-            'satiety': 0.45,
+            'id':
+            int.tryParse(
+              raw['id']?.toString() ?? '',
+            ) ??
+                0,
+
+            'name':
+            (raw['species_name'] ?? '寵物')
+                .toString(),
+
+            'satiety':
+            (
+                _toDouble(
+                  raw['satiety'],
+                  fallback: 0.45,
+                ).clamp(0.0, 1.0) as num
+            ).toDouble(),
+
+            'is_dead':
+            raw['is_dead'] == true ||
+                raw['is_dead'] == 1 ||
+                raw['is_dead']?.toString() == '1',
+
+            'dead_at':
+            raw['dead_at'],
+
             'from_choice_ticket': true,
           };
         }
@@ -329,8 +599,24 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       _feedingPetKey = null;
     });
   }
-  Future<void> _feedPet(Map<String, dynamic> food) async {
+  Future<void> _feedPet(
+      Map<String, dynamic> food,
+      ) async {
     if (!_currentPetUnlocked) return;
+
+    final petIsDead =
+        _currentPetData?['is_dead'] == true ||
+            _currentPetData?['is_dead'] == 1 ||
+            _currentPetData?['is_dead']
+                ?.toString() ==
+                '1';
+
+    if (petIsDead) {
+      _showMsg(
+        '這隻寵物已經死亡，無法餵食',
+      );
+      return;
+    }
 
     final price = food['price'] as int;
 
@@ -340,129 +626,103 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
     }
 
     final petData = _currentPetData!;
-    final currentUserId =
-    await GameApiService.instance.resolveCurrentUserId();
 
-    debugPrint('🐾 餵食 userId = $currentUserId');
+    final currentUserId =
+    await GameApiService.instance
+        .resolveCurrentUserId();
+
     Map<String, dynamic>? spendResult;
 
     try {
-      debugPrint('================ 餵食開始 ================');
-      debugPrint('🐾 petKey = $_currentPetKey');
-      debugPrint('🐾 petData = $petData');
-      debugPrint('🍖 food = $food');
-      debugPrint('💰 price = $price');
-
-      // ① 先測 5000
-      debugPrint('➡️ 呼叫 spendGameReward');
-
-      spendResult = await GameApiService.instance.spendGameReward(
+      // 5000 只負責扣寵物代幣
+      spendResult =
+      await GameApiService.instance
+          .spendGameReward(
         rewardType: 'pet_tokens',
         amount: price,
         source: 'pet_food',
       );
 
-      debugPrint('✅ spendGameReward 成功：$spendResult');
-
-      // 自選券寵物
-      if (petData['from_choice_ticket'] == true) {
-        final rawGain = food['isMystery'] == true
-            ? 0.18
-            : (food['gain'] as num).toDouble();
-
-        if (!mounted) return;
-
-        setState(() {
-          _petTokens =
-              int.tryParse(spendResult?['pet_tokens']?.toString() ?? '') ??
-                  (_petTokens - price);
-
-          petData['satiety'] =
-              ((_toDouble(
-                petData['satiety'],
-                fallback: 0.45,
-              ) + rawGain).clamp(0.0, 1.0) as num)
-                  .toDouble();
-        });
-
-        _showMsg('餵食成功！（寵物代幣 -$price）');
-
-        await _playFeedAnimation();
-        return;
-      }
-
-      // ② 再測 8000
-      debugPrint('➡️ 呼叫 feedPet');
-      debugPrint(
-        'petId=${petData['id']} '
-            'foodName=${food['name']} '
-            'gain=${food['gain']}',
-      );
-
-      final result = await GameApiService.instance.feedPet(
+      // 8000 統一負責寵物餵食
+      final result =
+      await GameApiService.instance
+          .feedPet(
         userId: currentUserId,
         petId: petData['id'] as int,
-        foodName: food['name'].toString(),
+        foodName:
+        food['name'].toString(),
         price: 0,
-        gain: (food['gain'] as num).toDouble(),
-        isMystery: food['isMystery'] == true,
+        gain:
+        (food['gain'] as num)
+            .toDouble(),
+        isMystery:
+        food['isMystery'] == true,
       );
-
-      debugPrint('✅ feedPet 成功：$result');
 
       if (!mounted) return;
 
       setState(() {
         _petTokens =
-            int.tryParse(spendResult?['pet_tokens']?.toString() ?? '') ??
+            int.tryParse(
+              spendResult?['pet_tokens']
+                  ?.toString() ??
+                  '',
+            ) ??
                 (_petTokens - price);
 
         petData['satiety'] =
             (_toDouble(
               result['satiety'],
-              fallback: _toDouble(
+              fallback:
+              _toDouble(
                 petData['satiety'],
                 fallback: 0.45,
               ),
             ).clamp(0.0, 1.0) as num)
                 .toDouble();
+
+        petData['is_dead'] =
+            result['is_dead'] == true ||
+                result['is_dead'] == 1 ||
+                result['is_dead']
+                    ?.toString() ==
+                    '1';
       });
 
       _showMsg(
-        '${result['message'] ?? '餵食成功！'}（寵物代幣 -$price）',
+        '${result['message'] ?? '餵食成功！'}'
+            '（寵物代幣 -$price）',
       );
 
       await _playFeedAnimation();
-
-    } catch (e, stackTrace) {
-      debugPrint('❌❌❌ 餵食真正錯誤：$e');
-      debugPrint('❌ stackTrace：$stackTrace');
-
+    } catch (e) {
       if (spendResult != null) {
         try {
           final refund =
-          await GameApiService.instance.addPetTokens(
+          await GameApiService.instance
+              .addPetTokens(
             amount: price,
-            source: 'pet_food_refund',
+            source:
+            'pet_food_refund',
           );
 
           if (mounted) {
             setState(() {
               _petTokens =
                   int.tryParse(
-                    refund['pet_tokens']?.toString() ?? '',
+                    refund['pet_tokens']
+                        ?.toString() ??
+                        '',
                   ) ??
                       (_petTokens + price);
             });
           }
-
-          debugPrint('↩️ 已補回代幣');
-        } catch (refundError) {
-          debugPrint('❌ 補回代幣也失敗：$refundError');
-        }
+        } catch (_) {}
       }
 
-      _showMsg('餵食失敗，請查看 Terminal 錯誤');
+      _showMsg(
+        '餵食失敗，請確認 8000 後端是否啟動',
+      );
     }
   }
 
@@ -637,7 +897,60 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
         ),
       );
     }
+    final isDead =
+        _currentPetData?['is_dead']
+            == true;
 
+    if (isDead) {
+      return Padding(
+        padding:
+        const EdgeInsets.symmetric(
+          horizontal: 20,
+        ),
+        child: Container(
+          padding:
+          const EdgeInsets.symmetric(
+            horizontal: 14,
+            vertical: 10,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade200,
+            borderRadius:
+            BorderRadius.circular(20),
+          ),
+          child: const Row(
+            children: [
+              Text(
+                '👻',
+                style:
+                TextStyle(fontSize: 18),
+              ),
+
+              SizedBox(width: 8),
+
+              Text(
+                '寵物已死亡',
+                style: TextStyle(
+                  fontWeight:
+                  FontWeight.bold,
+                  color: Colors.grey,
+                ),
+              ),
+
+              Spacer(),
+
+              Text(
+                '飢餓度 0%',
+                style: TextStyle(
+                  color: Colors.grey,
+                  fontSize: 12,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final sat = _currentPetData!['satiety'] as double;
     final satColor = sat > 0.7 ? const Color(0xFF4CAF50) : (sat > 0.35 ? Colors.orange : const Color(0xFFF44336));
     final satEmoji = sat > 0.7 ? '😊' : (sat > 0.35 ? '😐' : '😢');
@@ -701,12 +1014,24 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
     );
   }
 
-  Widget _buildPetCard(Map<String, dynamic> petType, bool isCenter) {
+  Widget _buildPetCard(
+      Map<String, dynamic> petType,
+      bool isCenter,
+      ) {
     final key = petType['key'] as String;
     final isUnlocked = _unlockedPets.containsKey(key);
+
+    final petData = _unlockedPets[key];
+
+    final bool isDead =
+        _currentPetData?['is_dead'] == true ||
+            _currentPetData?['is_dead'] == 1 ||
+            _currentPetData?['is_dead']?.toString() == '1';
+
     final ringColor = petType['ringColor'] as Color;
     final idleImage = petType['idleImage'] as String;
     final feedAnimation = petType['feedAnimation'] as String;
+
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -754,7 +1079,9 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
                       ? Opacity(
                     opacity: _feedingPetKey == key ? 0.0 : 1.0,
                     child: Image.asset(
-                      idleImage,
+                      isDead
+                          ? _ghostImage
+                          : idleImage,
                       width: 320,
                       height: 320,
                       fit: BoxFit.contain,
@@ -765,12 +1092,12 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
                       0.2126, 0.7152, 0.0722, 0, 0,
                       0.2126, 0.7152, 0.0722, 0, 0,
                       0.2126, 0.7152, 0.0722, 0, 0,
-                      0,      0,      0,      0.45, 0,
+                      0, 0, 0, 0.45, 0,
                     ]),
                     child: Image.asset(
                       idleImage,
-                      width: 320,
-                      height: 320,
+                      width: 230,
+                      height: 230,
                       fit: BoxFit.contain,
                     ),
                   ),
@@ -852,67 +1179,288 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
 
             // Battle button + name tag row (unlocked pets only)
             if (isUnlocked)
-              Positioned(
-                bottom: 14,
-                left: 14,
-                right: 14,
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              Positioned.fill(
+                child: DraggableScrollableSheet(
+                  initialChildSize: 0.24,
+                  minChildSize: 0.18,
+                  maxChildSize: 0.58,
+                  snap: true,
+                  snapSizes: const [
+                    0.18,
+                    0.58,
+                  ],
+                  builder: (
+                      context,
+                      scrollController,
+                      ) {
+                    final skill = getPetSkill(key);
+                    final tagColor =
+                    petType['tagColor'] as Color;
+
+                    return Container(
                       decoration: BoxDecoration(
-                        color: (petType['tagColor'] as Color).withOpacity(0.15),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: (petType['tagColor'] as Color).withOpacity(0.4)),
-                      ),
-                      child: Text(
-                        _unlockedPets[key]!['name'] as String,
-                        style: TextStyle(
-                          color: petType['tagColor'] as Color,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
+                        color: Colors.white.withOpacity(0.96),
+                        borderRadius:
+                        const BorderRadius.vertical(
+                          top: Radius.circular(24),
                         ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.10),
+                            blurRadius: 12,
+                            offset: const Offset(0, -3),
+                          ),
+                        ],
                       ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: () async {
-                        final petData = _unlockedPets[key]!;
-                        SelectedPet.set(
-                          name: petData['name'] as String,
-                          animationPath: petType['idleImage'] as String,
-                          emoji: petType['emoji'] as String,
-                          color: petType['ringColor'] as Color,
-                        );
-
-                        // ★★★ 新增：將選擇的寵物 Key 存入本地，讓 main_App_shell 讀取 ★★★
-                        final prefs = await SharedPreferences.getInstance();
-                        await prefs.setString('current_pet_key', key);
-
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => PlaygroundPage(
-                              petName: petData['name'] as String,
-                              petAnimationPath: petType['idleImage'] as String,
-                              petEmoji: petType['emoji'] as String,
-                              petColor: petType['ringColor'] as Color,
-                              initialMapTheme: SelectedPet.lastMapTheme ?? MapTheme.taiwan,
+                      child: ListView(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(
+                          14,
+                          8,
+                          14,
+                          18,
+                        ),
+                        children: [
+                          // ================================
+                          // 上方拖曳把手
+                          // ================================
+                          Center(
+                            child: Container(
+                              width: 38,
+                              height: 4,
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade300,
+                                borderRadius:
+                                BorderRadius.circular(20),
+                              ),
                             ),
                           ),
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white,
-                        foregroundColor: (petType['tagColor'] as Color),
-                        shape: const StadiumBorder(),
-                        elevation: 3,
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+
+                          const SizedBox(height: 10),
+
+                          // ================================
+                          // 寵物名稱
+                          // ================================
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  _unlockedPets[key]!['name']
+                                  as String,
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight:
+                                    FontWeight.bold,
+                                    color: tagColor,
+                                  ),
+                                ),
+                              ),
+
+                              Icon(
+                                skill?.skillIcon ??
+                                    Icons.pets_rounded,
+                                color: tagColor,
+                                size: 20,
+                              ),
+                            ],
+                          ),
+
+                          if (skill != null) ...[
+                            const SizedBox(height: 4),
+
+                            Text(
+                              skill.personality,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Colors.grey.shade600,
+                              ),
+                            ),
+
+                            const SizedBox(height: 14),
+
+                            // ================================
+                            // 被動技能
+                            // ================================
+                            _buildPetCardSkillRow(
+                              icon:
+                              Icons.shield_rounded,
+                              title:
+                              '被動｜${skill.passiveName}',
+                              description:
+                              skill.passiveDescription,
+                              color: tagColor,
+                            ),
+
+                            const SizedBox(height: 10),
+
+                            // ================================
+                            // 主動技能
+                            // ================================
+                            _buildPetCardSkillRow(
+                              icon:
+                              Icons.auto_awesome_rounded,
+                              title:
+                              '主動｜${skill.activeName}',
+                              description:
+                              skill.activeDescription,
+                              color: tagColor,
+                            ),
+                          ],
+
+                          const SizedBox(height: 16),
+
+                          // ================================
+                          // 按鈕
+                          // ================================
+                          Row(
+                            children: [
+                              Expanded(
+                                child:
+                                OutlinedButton.icon(
+                                  onPressed: () {
+                                    _showPetSkillSheet(
+                                      context,
+                                      key,
+                                      tagColor,
+                                    );
+                                  },
+                                  style: OutlinedButton
+                                      .styleFrom(
+                                    foregroundColor:
+                                    tagColor,
+                                    side: BorderSide(
+                                      color: tagColor
+                                          .withOpacity(
+                                          0.45),
+                                    ),
+                                    shape:
+                                    const StadiumBorder(),
+                                    padding:
+                                    const EdgeInsets
+                                        .symmetric(
+                                      vertical: 9,
+                                    ),
+                                  ),
+                                  icon: const Icon(
+                                    Icons
+                                        .auto_awesome_rounded,
+                                    size: 15,
+                                  ),
+                                  label: const Text(
+                                    '技能詳情',
+                                    style: TextStyle(
+                                      fontWeight:
+                                      FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ),
+                              ),
+
+                              const SizedBox(width: 8),
+
+                              Expanded(
+                                child:
+                                ElevatedButton.icon(
+                                  onPressed: isDead
+                                      ? null
+                                      : () async {
+                                    final selectedPetData =
+                                    _unlockedPets[key];
+
+                                    if (selectedPetData == null) {
+                                      return;
+                                    }
+
+                                    SelectedPet.set(
+                                      name:
+                                      selectedPetData['name']
+                                      as String,
+                                      animationPath:
+                                      petType['idleImage']
+                                      as String,
+                                      emoji:
+                                      petType['emoji']
+                                      as String,
+                                      color:
+                                      petType['ringColor']
+                                      as Color,
+                                    );
+
+                                    final prefs =
+                                    await SharedPreferences
+                                        .getInstance();
+
+                                    await prefs.setString(
+                                      'current_pet_key',
+                                      key,
+                                    );
+
+                                    if (!mounted) return;
+
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            PlaygroundPage(
+                                              petName:
+                                              selectedPetData['name']
+                                              as String,
+                                              petAnimationPath:
+                                              petType['idleImage']
+                                              as String,
+                                              petEmoji:
+                                              petType['emoji']
+                                              as String,
+                                              petColor:
+                                              petType['ringColor']
+                                              as Color,
+                                              initialMapTheme:
+                                              SelectedPet.lastMapTheme ??
+                                                  MapTheme.taiwan,
+                                            ),
+                                      ),
+                                    );
+                                  },
+                                  style:
+                                  ElevatedButton
+                                      .styleFrom(
+                                    backgroundColor:
+                                    tagColor,
+                                    foregroundColor:
+                                    Colors.white,
+                                    shape:
+                                    const StadiumBorder(),
+                                    elevation: 2,
+                                    padding:
+                                    const EdgeInsets
+                                        .symmetric(
+                                      vertical: 9,
+                                    ),
+                                  ),
+                                  icon: const Icon(
+                                    Icons
+                                        .sports_kabaddi_rounded,
+                                    size: 15,
+                                  ),
+                                  label: const Text(
+                                    '上戰場',
+                                    style: TextStyle(
+                                      fontWeight:
+                                      FontWeight.bold,
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+
+                          const SizedBox(height: 6),
+                        ],
                       ),
-                      icon: const Icon(Icons.sports_kabaddi_rounded, size: 16),
-                      label: const Text('上戰場', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
           ],
@@ -920,7 +1468,74 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       ),
     );
   }
+  Widget _buildPetCardSkillRow({
+    required IconData icon,
+    required String title,
+    required String description,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: color.withOpacity(0.18),
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment:
+        CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.13),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(
+              icon,
+              color: color,
+              size: 17,
+            ),
+          ),
 
+          const SizedBox(width: 9),
+
+          Expanded(
+            child: Column(
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight:
+                    FontWeight.bold,
+                    color: color,
+                  ),
+                ),
+
+                const SizedBox(height: 3),
+
+                Text(
+                  description,
+                  style: TextStyle(
+                    fontSize: 10,
+                    height: 1.35,
+                    color:
+                    Colors.grey.shade700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
   // ── Page indicator dots ───────────────────────────────────────────────────
 
   Widget _buildPageIndicator() {
@@ -966,7 +1581,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       child: Column(children: [
         // 商店標題
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+          padding: const EdgeInsets.fromLTRB(12, 16, 12, 45),
           child: Row(children: [
             Text('🍽️', style: const TextStyle(fontSize: 16)),
             const SizedBox(width: 6),
