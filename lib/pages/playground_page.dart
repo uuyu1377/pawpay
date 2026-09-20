@@ -401,14 +401,19 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   bool _beeExtraTurnReady = false;
   // ★★★ 新增：如果玩家 0（使用者）目前沒有寵物圖片，去讀取使用者實際選的寵物 key 補回來 ★★★
   Future<void> _ensureSelectedPetImageLoaded() async {
-    if (_players.isEmpty || _players[0].animationPath != null) return; // 已經有圖片了，不用處理
+    if (_players.isEmpty) return;
+
     try {
       final prefs = await SharedPreferences.getInstance();
+
       final key = prefs.getString('current_pet_key');
+
       final imagePath = _kPetImageMap[key];
+
       if (imagePath == null || !mounted) return;
 
       final old = _players[0];
+
       setState(() {
         _players[0] = Player(
           id: old.id,
@@ -423,8 +428,8 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
           jailTurns: old.jailTurns,
         );
       });
-    } catch (_) {
-      // 讀取失敗就維持原本畫面，不影響遊戲功能
+    } catch (e) {
+      debugPrint('❌ 更新大富翁寵物圖片失敗：$e');
     }
   }
 
@@ -2218,22 +2223,120 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
               ),
             ),
             Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                const Text("🎲", style: TextStyle(fontSize: 56)),
-                const SizedBox(height: 10),
-                const Text("選擇冒險地圖", style: TextStyle(color: Color(0xFF5D4037), fontSize: 28, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-                const SizedBox(height: 6),
-                Text("搖一搖手機可以擲骰子！", style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
-                const SizedBox(height: 40),
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _themeCard(MapTheme.taiwan,      "台灣環島",   "🗺️", const Color(0xFF81C784), const Color(0xFFF1F8E9), const Color(0xFFE8F5E9)),
-                    const SizedBox(width: 20),
-                    _themeCard(MapTheme.magicIsland, "魔法天空島", "✨", const Color(0xFFBA68C8), const Color(0xFFF8E8FF), const Color(0xFFF3E5F5)),
+                    ElevatedButton(
+                      onPressed: canRoll ? _rollDice : null,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                        canRoll ? accent : Colors.grey.shade300,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 22,
+                          vertical: 11,
+                        ),
+                        shape: const StadiumBorder(),
+                      ),
+                      child: Text(
+                        _isRolling
+                            ? '擲中...'
+                            : (_currentPlayerIdx == 0
+                            ? '出發！'
+                            : '電腦回合'),
+                      ),
+                    ),
+
+                    const SizedBox(width: 8),
+
+                    InkWell(
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const PetPage(),
+                          ),
+                        );
+
+                        // 從寵物頁回來後重新讀目前選擇的寵物
+                        await _loadCurrentPetSkill();
+                        await _ensureSelectedPetImageLoaded();
+
+                        if (mounted) {
+                          setState(() {});
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(24),
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: accent.withOpacity(0.6),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: accent.withOpacity(0.18),
+                              blurRadius: 8,
+                              offset: const Offset(0, 3),
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          Icons.pets_rounded,
+                          color: accent,
+                          size: 23,
+                        ),
+                      ),
+                    ),
                   ],
                 ),
+
+                if (skill != null) ...[
+                  const SizedBox(height: 4),
+
+                  SizedBox(
+                    height: 30,
+                    child: ElevatedButton.icon(
+                      onPressed:
+                      canRoll && !_activeSkillUsed
+                          ? _usePetSkill
+                          : null,
+                      icon: Icon(
+                        skill.skillIcon,
+                        size: 14,
+                      ),
+                      label: Text(
+                        _activeSkillUsed
+                            ? '技能已使用'
+                            : skill.activeName,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor:
+                        const Color(0xFFFFA726),
+                        foregroundColor: Colors.white,
+                        disabledBackgroundColor:
+                        Colors.grey.shade300,
+                        disabledForegroundColor:
+                        Colors.grey.shade600,
+                        padding:
+                        const EdgeInsets.symmetric(
+                          horizontal: 10,
+                        ),
+                        shape: const StadiumBorder(),
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
           ],
