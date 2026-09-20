@@ -151,6 +151,20 @@ class GameApiService {
     return _asMap(res.data);
   }
 
+  Future<Map<String, dynamic>> revivePet({
+    required int userId,
+    required int petId,
+  }) async {
+    final res = await _dio.post(
+      '$baseUrl/game/pets/$petId/revive',
+      queryParameters: {
+        'user_id': userId,
+      },
+    );
+
+    return _asMap(res.data);
+  }
+
   Future<Map<String, dynamic>> gachaDraw({int userId = 1, int cost = 10}) async {
     final res = await _dio.post('$baseUrl/game/gacha/draw', data: {'user_id': userId, 'cost': cost});
     return _asMap(res.data);

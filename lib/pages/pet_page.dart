@@ -6,6 +6,7 @@ import 'playground_page.dart';
 import 'package:user_interface/services/game_api_service.dart';
 import 'package:user_interface/services/current_pet_manager.dart';
 import 'dart:math';
+import 'dart:async';
 
 class PetPage extends StatefulWidget {
   const PetPage({super.key});
@@ -22,8 +23,12 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
   late AnimationController _floatController;
   late Animation<double> _floatAnimation;
   String? _feedingPetKey;
+  Timer? _petRefreshTimer;
   String? _interactingPetKey;
   String? _interactionImage;
+  static const int _reviveCost = 300;
+
+  bool _isReviving = false;
 
   final Random _random = Random();
   // 所有寵物卡片統一使用相同背景
@@ -536,37 +541,75 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
     _floatController.repeat(reverse: true);
 
     _loadPets();
+
+    _petRefreshTimer =
+        Timer.periodic(
+          const Duration(minutes: 1),
+              (_) {
+            if (mounted) {
+              _loadPets(
+                showLoading: false,
+              );
+            }
+          },
+        );
   }
 
-  Future<void> _loadPets() async {
-    setState(() => _isLoading = true);
+  Future<void> _loadPets({
+    bool showLoading = true,
+  }) async {
+    if (!mounted) return;
+
+    if (showLoading) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
+
     try {
       final api = GameApiService.instance;
 
-// ★ 取得目前真正登入的 user_id
-      final currentUserId = await api.resolveCurrentUserId();
+      // 取得目前真正登入的 user_id
+      final currentUserId =
+      await api.resolveCurrentUserId();
 
-      debugPrint('🐾 PetPage currentUserId = $currentUserId');
+      debugPrint(
+        '🐾 PetPage currentUserId = $currentUserId',
+      );
 
-      final wallet = await api.fetchRewardWallet(
+      final wallet =
+      await api.fetchRewardWallet(
         userId: currentUserId,
       );
 
-      List<Map<String, dynamic>> pets = const [];
+      List<Map<String, dynamic>> pets = [];
 
       try {
         pets = await api.fetchPets(
           userId: currentUserId,
         );
       } catch (e) {
-        debugPrint('❌ fetchPets 失敗：$e');
+        debugPrint(
+          '❌ fetchPets 失敗：$e',
+        );
       }
-      final choiceState = await api.fetchPetChoiceState();
+
+      final choiceState =
+      await api.fetchPetChoiceState();
+
       if (!mounted) return;
 
-      final unlockedMap = <String, Map<String, dynamic>>{};
+      final unlockedMap =
+      <String, Map<String, dynamic>>{};
+
+      // 8000 寵物
       for (final pet in pets) {
-        final key = (pet['icon_key'] ?? pet['species_name'] ?? 'dog').toString();
+        final key =
+        (pet['icon_key'] ??
+            pet['species_name'] ??
+            'dog')
+            .toString();
+
         unlockedMap[key] = {
           'id':
           int.tryParse(
@@ -575,91 +618,130 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
               0,
 
           'name':
-          (
-              pet['name'] ??
-                  pet['species_name'] ??
-                  '寵物'
-          ).toString(),
+          (pet['name'] ??
+              pet['species_name'] ??
+              '寵物')
+              .toString(),
 
-          'satiety':
-          (
-              _toDouble(
-                pet['satiety'],
-                fallback: 0.45,
-              ).clamp(0.0, 1.0) as num
-          ).toDouble(),
+          'satiety': (_toDouble(
+            pet['satiety'],
+            fallback: 0.45,
+          ).clamp(0.0, 1.0) as num)
+              .toDouble(),
 
+          // 死亡狀態
           'is_dead':
           pet['is_dead'] == true ||
-              pet['is_dead'] == 1 ||
-              pet['is_dead']?.toString() == '1',
+              pet['is_dead'] == 1,
 
-          'dead_at':
-          pet['dead_at'],
+          'dead_at': pet['dead_at'],
 
           'from_choice_ticket': false,
         };
       }
-      final choicePets = choiceState['pets'];
+
+      // 5000 自選券寵物
+      final choicePets =
+      choiceState['pets'];
+
       if (choicePets is List) {
         for (final raw in choicePets) {
           if (raw is! Map) continue;
-          final key = raw['species_key']?.toString() ?? '';
-          if (key.isEmpty || unlockedMap.containsKey(key)) continue;
+
+          final key =
+              raw['species_key']
+                  ?.toString() ??
+                  '';
+
+          if (key.isEmpty ||
+              unlockedMap.containsKey(key)) {
+            continue;
+          }
+
           unlockedMap[key] = {
             'id':
             int.tryParse(
-              raw['id']?.toString() ?? '',
+              raw['id']
+                  ?.toString() ??
+                  '',
             ) ??
                 0,
 
             'name':
-            (raw['species_name'] ?? '寵物')
+            (raw['species_name'] ??
+                '寵物')
                 .toString(),
 
-            'satiety':
-            (
-                _toDouble(
-                  raw['satiety'],
-                  fallback: 0.45,
-                ).clamp(0.0, 1.0) as num
-            ).toDouble(),
+            'satiety': 0.45,
 
-            'is_dead':
-            raw['is_dead'] == true ||
-                raw['is_dead'] == 1 ||
-                raw['is_dead']?.toString() == '1',
-
-            'dead_at':
-            raw['dead_at'],
+            'is_dead': false,
 
             'from_choice_ticket': true,
           };
         }
       }
 
+      if (!mounted) return;
+
       setState(() {
-        _petTokens = int.tryParse(wallet['pet_tokens']?.toString() ?? '') ?? 0;
-        _unlockedPets = unlockedMap;
+        _petTokens =
+            int.tryParse(
+              wallet['pet_tokens']
+                  ?.toString() ??
+                  '',
+            ) ??
+                0;
+
+        _unlockedPets =
+            unlockedMap;
+
         _isLoading = false;
-        // Jump to first unlocked pet if current page is locked
-        if (unlockedMap.isNotEmpty && !unlockedMap.containsKey(_currentPetKey)) {
-          final idx = _allPetTypes.indexWhere((p) => unlockedMap.containsKey(p['key']));
-          if (idx >= 0) _currentPage = idx;
+
+        // 如果目前停在未解鎖寵物，
+        // 跳到第一隻已解鎖寵物
+        if (unlockedMap.isNotEmpty &&
+            !unlockedMap.containsKey(
+              _currentPetKey,
+            )) {
+          final idx =
+          _allPetTypes.indexWhere(
+                (p) =>
+                unlockedMap.containsKey(
+                  p['key'],
+                ),
+          );
+
+          if (idx >= 0) {
+            _currentPage = idx;
+          }
         }
       });
     } catch (e) {
+      debugPrint(
+        '❌ _loadPets 發生錯誤：$e',
+      );
+
       if (!mounted) return;
+
       setState(() {
         _isLoading = false;
+
         _unlockedPets = {
-          'dog': {'id': 0, 'name': '離線小柴', 'satiety': 0.45},
+          'dog': {
+            'id': 0,
+            'name': '離線小柴',
+            'satiety': 0.45,
+            'is_dead': false,
+            'from_choice_ticket': false,
+          },
         };
       });
-      _showMsg('寵物資料庫連線失敗，顯示離線資料');
+
+      _showMsg(
+        '寵物資料庫連線失敗，顯示離線資料',
+      );
     }
   }
-
   String get _currentPetKey => _allPetTypes[_currentPage]['key'] as String;
   bool get _currentPetUnlocked => _unlockedPets.containsKey(_currentPetKey);
   Map<String, dynamic>? get _currentPetData => _unlockedPets[_currentPetKey];
@@ -717,6 +799,152 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       _feedingPetKey = null;
     });
   }
+
+  Future<void> _reviveCurrentPet() async {
+    final petData = _currentPetData;
+
+    if (petData == null) return;
+
+    if (petData['is_dead'] != true) {
+      _showMsg('這隻寵物目前不需要復活');
+      return;
+    }
+
+    if (_petTokens < _reviveCost) {
+      _showMsg(
+        '寵物代幣不足，需要 $_reviveCost 枚',
+      );
+      return;
+    }
+
+    final confirmed =
+    await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text(
+            '復活寵物',
+          ),
+          content: Text(
+            '確定要花 $_reviveCost 枚寵物代幣復活這隻寵物嗎？\n\n復活後飽足度會恢復到 30%。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  false,
+                );
+              },
+              child: const Text('取消'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(
+                  context,
+                  true,
+                );
+              },
+              child: const Text(
+                '復活',
+              ),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed != true) return;
+
+    setState(() {
+      _isReviving = true;
+    });
+
+    try {
+      final currentUserId =
+      await GameApiService
+          .instance
+          .resolveCurrentUserId();
+
+      // 先扣寵物代幣
+      final spendResult =
+      await GameApiService
+          .instance
+          .spendGameReward(
+        userId: currentUserId,
+        rewardType: 'pet_tokens',
+        amount: _reviveCost,
+        source: 'pet_revive',
+      );
+
+      try {
+        // 再呼叫 8000 復活
+        await GameApiService
+            .instance
+            .revivePet(
+          userId: currentUserId,
+          petId:
+          int.tryParse(
+            petData['id']
+                ?.toString() ??
+                '',
+          ) ??
+              0,
+        );
+      } catch (e) {
+        debugPrint(
+          '❌ revivePet 失敗：$e',
+        );
+
+        _showMsg(
+          '復活失敗，請稍後再試',
+        );
+
+        return;
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _petTokens =
+            int.tryParse(
+              spendResult['pet_tokens']
+                  ?.toString() ??
+                  '',
+            ) ??
+                (_petTokens -
+                    _reviveCost);
+
+        petData['satiety'] = 0.30;
+        petData['is_dead'] = false;
+        petData['dead_at'] = null;
+
+        _isReviving = false;
+      });
+
+      _showMsg(
+        '寵物復活成功！飽足度恢復到 30%',
+      );
+
+      await _loadPets();
+    } catch (e) {
+      debugPrint(
+        '❌ 復活流程失敗：$e',
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _isReviving = false;
+      });
+
+      _showMsg(
+        '復活失敗，請稍後再試',
+      );
+    }
+  }
+
+
   Future<void> _feedPet(
       Map<String, dynamic> food,
       ) async {
@@ -859,8 +1087,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
 
   @override
   void dispose() {
+    _petRefreshTimer?.cancel();
+
     _floatController.dispose();
     _pageController.dispose();
+
     super.dispose();
   }
 
@@ -1021,47 +1252,74 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
 
     if (isDead) {
       return Padding(
-        padding:
-        const EdgeInsets.symmetric(
+        padding: const EdgeInsets.symmetric(
           horizontal: 20,
         ),
         child: Container(
-          padding:
-          const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 10,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
           ),
           decoration: BoxDecoration(
             color: Colors.grey.shade200,
             borderRadius:
             BorderRadius.circular(20),
           ),
-          child: const Row(
+          child: Row(
             children: [
-              Text(
-                '👻',
-                style:
-                TextStyle(fontSize: 18),
+              const Icon(
+                Icons.sentiment_very_dissatisfied_rounded,
+                color: Colors.grey,
               ),
 
-              SizedBox(width: 8),
+              const SizedBox(width: 10),
 
-              Text(
-                '寵物已死亡',
-                style: TextStyle(
-                  fontWeight:
-                  FontWeight.bold,
-                  color: Colors.grey,
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '寵物已經餓昏了',
+                      style: TextStyle(
+                        fontWeight:
+                        FontWeight.bold,
+                      ),
+                    ),
+                    SizedBox(height: 3),
+                    Text(
+                      '復活後飽足度恢復至 30%',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Colors.grey,
+                      ),
+                    ),
+                  ],
                 ),
               ),
 
-              Spacer(),
-
-              Text(
-                '飢餓度 0%',
-                style: TextStyle(
-                  color: Colors.grey,
-                  fontSize: 12,
+              ElevatedButton.icon(
+                onPressed:
+                _isReviving
+                    ? null
+                    : _reviveCurrentPet,
+                icon: _isReviving
+                    ? const SizedBox(
+                  width: 14,
+                  height: 14,
+                  child:
+                  CircularProgressIndicator(
+                    strokeWidth: 2,
+                  ),
+                )
+                    : const Icon(
+                  Icons.favorite_rounded,
+                  size: 16,
+                ),
+                label: Text(
+                  _isReviving
+                      ? '復活中'
+                      : '$_reviveCost 代幣復活',
                 ),
               ),
             ],
@@ -1069,6 +1327,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
         ),
       );
     }
+
     final sat = _currentPetData!['satiety'] as double;
     final satColor = sat > 0.7 ? const Color(0xFF4CAF50) : (sat > 0.35 ? Colors.orange : const Color(0xFFF44336));
     final satEmoji = sat > 0.7 ? '😊' : (sat > 0.35 ? '😐' : '😢');
