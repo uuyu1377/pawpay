@@ -5,6 +5,7 @@ import 'gacha_page.dart';
 import 'playground_page.dart';
 import 'package:user_interface/services/game_api_service.dart';
 import 'package:user_interface/services/current_pet_manager.dart';
+import 'dart:math';
 
 class PetPage extends StatefulWidget {
   const PetPage({super.key});
@@ -21,7 +22,10 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
   late AnimationController _floatController;
   late Animation<double> _floatAnimation;
   String? _feedingPetKey;
+  String? _interactingPetKey;
+  String? _interactionImage;
 
+  final Random _random = Random();
   // 所有寵物卡片統一使用相同背景
   static const List<Color> _sharedPetBackground = [
     Color(0xFFFFF7F2),
@@ -261,7 +265,13 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFFFF8E1), Color(0xFFFFECB3)],
       'ringColor': Color(0xFFFFB300),
       'tagColor': Color(0xFFFF8F00),
-    },
+
+      'interactImages': [
+      'assets/pets/dog_interact_1.png',
+      'assets/pets/dog_interact_2.png',
+      'assets/pets/dog_interact_3.png',
+      ],
+      },
     {
       'key': 'cat',
       'name': '貓咪',
@@ -271,6 +281,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
       'ringColor': Color(0xFF42A5F5),
       'tagColor': Color(0xFF1E88E5),
+      'interactImages': [
+        'assets/pets/cat_interact_1.png',
+        'assets/pets/cat_interact_2.png',
+        'assets/pets/cat_interact_3.png',
+      ],
     },
     {
       'key': 'parrot',
@@ -281,6 +296,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFF3E5F5), Color(0xFFE1BEE7)],
       'ringColor': Color(0xFFAB47BC),
       'tagColor': Color(0xFF8E24AA),
+      'interactImages': [
+        'assets/pets/parrot_interact_1.png',
+        'assets/pets/parrot_interact_2.png',
+        'assets/pets/parrot_interact_3.png',
+      ],
     },
     {
       'key': 'sloth',
@@ -291,6 +311,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFEFEBE9), Color(0xFFD7CCC8)],
       'ringColor': Color(0xFF8D6E63),
       'tagColor': Color(0xFF6D4C41),
+      'interactImages': [
+        'assets/pets/sloth_interact_1.png',
+        'assets/pets/sloth_interact_2.png',
+        'assets/pets/sloth_interact_3.png',
+      ],
     },
     {
       'key': 'fox',
@@ -301,10 +326,15 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFFBE9E7), Color(0xFFFFCCBC)],
       'ringColor': Color(0xFFFF5722),
       'tagColor': Color(0xFFE64A19),
+      'interactImages': [
+        'assets/pets/fox_interact_1.png',
+        'assets/pets/fox_interact_2.png',
+        'assets/pets/fox_interact_3.png',
+      ],
     },
     // ── 新增：狗狗變體 ──────────────────────────────────────────────────────
     {
-      'key': 'cute_dog',
+      'key': 'shiba_dog',
       'name': '柴犬',
       'emoji': '🐕',
       'idleImage': 'assets/pets/shiba_action.png',
@@ -312,6 +342,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFFFF3E0), Color(0xFFFFE0B2)],
       'ringColor': Color(0xFFFF8A65),
       'tagColor': Color(0xFFE64A19),
+      'interactImages': [
+        'assets/pets/shiba_interact_1.png',
+        'assets/pets/shiba_interact_2.png',
+        'assets/pets/shiba_interact_3.png',
+      ],
     },
     {
       'key': 'pomeranian',
@@ -322,9 +357,14 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFFCE4EC), Color(0xFFF8BBD9)],
       'ringColor': Color(0xFFEC407A),
       'tagColor': Color(0xFFC2185B),
+      'interactImages': [
+        'assets/pets/pomeranian_interact_1.png',
+        'assets/pets/pomeranian_interact_2.png',
+        'assets/pets/pomeranian_interact_3.png',
+      ],
     },
     {
-      'key': 'norm_dog',
+      'key': 'calm_dog',
       'name': '諾姆犬',
       'emoji': '🦮', // ★ 修改：原本是骨頭 🦴
       'idleImage': 'assets/pets/calm_dog_action.png',
@@ -332,9 +372,14 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFE8F5E9), Color(0xFFC8E6C9)],
       'ringColor': Color(0xFF66BB6A),
       'tagColor': Color(0xFF388E3C),
+      'interactImages': [
+        'assets/pets/calm_dog_interact_1.png',
+        'assets/pets/calm_dog_interact_2.png',
+        'assets/pets/calm_dog_interact_3.png',
+      ],
     },
     {
-      'key': 'wagging_dog',
+      'key': 'clingy_dog',
       'name': '甩尾狗',
       'emoji': '🐕', // ★ 修改：原本是腳印 🐾
       'idleImage': 'assets/pets/clingy_dog_action.png',
@@ -342,10 +387,15 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFE3F2FD), Color(0xFFBBDEFB)],
       'ringColor': Color(0xFF29B6F6),
       'tagColor': Color(0xFF0288D1),
+      'interactImages': [
+        'assets/pets/clingy_dog_interact_1.png',
+        'assets/pets/clingy_dog_interact_2.png',
+        'assets/pets/clingy_dog_interact_3.png',
+      ],
     },
     // ── 新增：貓咪變體 ──────────────────────────────────────────────────────
     {
-      'key': 'lovely_cat',
+      'key': 'love_cat',
       'name': '愛心貓',
       'emoji': '😻', // ★ 修改：原本是愛心 💕
       'idleImage': 'assets/pets/love_cat_action.png',
@@ -353,9 +403,14 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFFCE4EC), Color(0xFFF48FB1)],
       'ringColor': Color(0xFFE91E63),
       'tagColor': Color(0xFF880E4F),
+      'interactImages': [
+        'assets/pets/love_cat_interact_1.png',
+        'assets/pets/love_cat_interact_2.png',
+        'assets/pets/love_cat_interact_3.png',
+      ],
     },
     {
-      'key': 'blue_cat',
+      'key': 'work_cat',
       'name': '工作貓',
       'emoji': '😼',
       'idleImage': 'assets/pets/work_cat_action.png',
@@ -363,6 +418,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFE8EAF6), Color(0xFFC5CAE9)],
       'ringColor': Color(0xFF5C6BC0),
       'tagColor': Color(0xFF283593),
+      'interactImages': [
+        'assets/pets/work_cat_interact_1.png',
+        'assets/pets/work_cat_interact_2.png',
+        'assets/pets/work_cat_interact_3.png',
+      ],
     },
     {
       'key': 'rocket_cat',
@@ -373,9 +433,14 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFE0F2F1), Color(0xFFB2DFDB)],
       'ringColor': Color(0xFF26A69A),
       'tagColor': Color(0xFF00695C),
+      'interactImages': [
+        'assets/pets/rocket_cat_interact_1.png',
+        'assets/pets/rocket_cat_interact_2.png',
+        'assets/pets/rocket_cat_interact_3.png',
+      ],
     },
     {
-      'key': 'loader_cat',
+      'key': 'waiting_cat',
       'name': '等待貓',
       'emoji': '🐈', // ★ 修改：原本是沙漏 ⏳
       'idleImage': 'assets/pets/waiting_cat_action.png',
@@ -383,6 +448,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFF3E5F5), Color(0xFFCE93D8)],
       'ringColor': Color(0xFFBA68C8),
       'tagColor': Color(0xFF6A1B9A),
+      'interactImages': [
+        'assets/pets/waiting_cat_interact_1.png',
+        'assets/pets/waiting_cat_interact_2.png',
+        'assets/pets/waiting_cat_interact_3.png',
+      ],
     },
     // ── 新增：全新動物 ──────────────────────────────────────────────────────
     {
@@ -394,6 +464,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFEFEBE9), Color(0xFFBCAAA4)],
       'ringColor': Color(0xFF8D6E63),
       'tagColor': Color(0xFF4E342E),
+      'interactImages': [
+        'assets/pets/bear_interact_1.png',
+        'assets/pets/bear_interact_2.png',
+        'assets/pets/bear_interact_3.png',
+      ],
     },
     {
       'key': 'bee',
@@ -404,6 +479,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFFFFDE7), Color(0xFFFFF9C4)],
       'ringColor': Color(0xFFFFD600),
       'tagColor': Color(0xFFF9A825),
+      'interactImages': [
+        'assets/pets/bee_interact_1.png',
+        'assets/pets/bee_interact_2.png',
+        'assets/pets/bee_interact_3.png',
+      ],
     },
     {
       'key': 'giraffe',
@@ -414,6 +494,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'bgGradient': [Color(0xFFFFF8E1), Color(0xFFFFECB3)],
       'ringColor': Color(0xFFFFCA28),
       'tagColor': Color(0xFFFF8F00),
+      'interactImages': [
+        'assets/pets/giraffe_interact_1.png',
+        'assets/pets/giraffe_interact_2.png',
+        'assets/pets/giraffe_interact_3.png',
+      ],
     },
   ];
 
@@ -582,6 +667,39 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
   double _toDouble(dynamic v, {double fallback = 0.0}) {
     if (v is num) return v.toDouble();
     return double.tryParse(v?.toString() ?? '') ?? fallback;
+  }
+
+  Future<void> _playRandomInteraction(
+      String petKey,
+      List<String> images,
+      ) async {
+    if (images.isEmpty) return;
+
+    // 正在餵食就先不要觸發互動
+    if (_feedingPetKey != null) return;
+
+    final randomImage =
+    images[_random.nextInt(images.length)];
+
+    setState(() {
+      _interactingPetKey = petKey;
+      _interactionImage = randomImage;
+    });
+
+    await Future.delayed(
+      const Duration(milliseconds: 1100),
+    );
+
+    if (!mounted) return;
+
+    // 避免快速連點後，舊 Timer 把新動作清掉
+    if (_interactingPetKey == petKey &&
+        _interactionImage == randomImage) {
+      setState(() {
+        _interactingPetKey = null;
+        _interactionImage = null;
+      });
+    }
   }
 
   Future<void> _playFeedAnimation() async {
@@ -1031,7 +1149,9 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
     final ringColor = petType['ringColor'] as Color;
     final idleImage = petType['idleImage'] as String;
     final feedAnimation = petType['feedAnimation'] as String;
-
+    final interactImages =
+    ((petType['interactImages'] as List?) ?? const [])
+        .cast<String>();
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -1077,14 +1197,29 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
                   },
                   child: isUnlocked
                       ? Opacity(
-                    opacity: _feedingPetKey == key ? 0.0 : 1.0,
-                    child: Image.asset(
-                      isDead
-                          ? _ghostImage
-                          : idleImage,
-                      width: 320,
-                      height: 320,
-                      fit: BoxFit.contain,
+                    opacity:
+                    _feedingPetKey == key ? 0.0 : 1.0,
+                    child: GestureDetector(
+                      behavior: HitTestBehavior.translucent,
+                      onTap: () {
+                        if (!isCenter) return;
+                        if (isDead) return;
+
+                        _playRandomInteraction(
+                          key,
+                          interactImages,
+                        );
+                      },
+                      child: Image.asset(
+                        _interactingPetKey == key &&
+                            _interactionImage != null
+                            ? _interactionImage!
+                            : idleImage,
+                        width: 320,
+                        height: 320,
+                        fit: BoxFit.contain,
+                        gaplessPlayback: true,
+                      ),
                     ),
                   )
                       : ColorFiltered(
@@ -1136,6 +1271,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
               ),
 
             // Lock overlay
+            // Lock overlay
             if (!isUnlocked)
               Positioned.fill(
                 child: Container(
@@ -1144,35 +1280,102 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
                     color: Colors.white.withOpacity(0.15),
                   ),
                   child: Center(
-                    child: Column(mainAxisSize: MainAxisSize.min, children: [
-                      Container(
-                        padding: const EdgeInsets.all(18),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[600]!.withOpacity(0.80),
-                          shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withOpacity(0.2),
-                              blurRadius: 12,
-                              offset: const Offset(0, 4),
-                            )
-                          ],
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(18),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[600]!.withOpacity(0.80),
+                            shape: BoxShape.circle,
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.2),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: const Icon(
+                            Icons.lock_rounded,
+                            color: Colors.white,
+                            size: 44,
+                          ),
                         ),
-                        child: const Icon(Icons.lock_rounded, color: Colors.white, size: 44),
-                      ),
-                      const SizedBox(height: 12),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: Colors.grey[700]!.withOpacity(0.75),
-                          borderRadius: BorderRadius.circular(20),
+
+                        const SizedBox(height: 12),
+
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 6,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.grey[700]!.withOpacity(0.75),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: const Text(
+                            '尚未解鎖',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
                         ),
-                        child: const Text(
-                          '扭蛋解鎖',
-                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+
+                        const SizedBox(height: 12),
+
+                        // 未解鎖也可以查看技能
+                        OutlinedButton.icon(
+                          onPressed: () {
+                            _showPetSkillSheet(
+                              context,
+                              key,
+                              petType['tagColor'] as Color,
+                            );
+                          },
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor:
+                            Colors.white.withOpacity(0.92),
+                            foregroundColor:
+                            petType['tagColor'] as Color,
+                            side: BorderSide(
+                              color:
+                              (petType['tagColor'] as Color)
+                                  .withOpacity(0.55),
+                            ),
+                            shape: const StadiumBorder(),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 18,
+                              vertical: 9,
+                            ),
+                          ),
+                          icon: const Icon(
+                            Icons.auto_awesome_rounded,
+                            size: 16,
+                          ),
+                          label: const Text(
+                            '查看技能',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 12,
+                            ),
+                          ),
                         ),
-                      ),
-                    ]),
+
+                        const SizedBox(height: 6),
+
+                        Text(
+                          '可透過扭蛋解鎖',
+                          style: TextStyle(
+                            color: Colors.grey.shade700,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -1568,6 +1771,10 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
     final bottomPad = MediaQuery.of(context).padding.bottom;
     final petType = _allPetTypes[_currentPage];
     final ringColor = petType['ringColor'] as Color;
+
+    final interactImages =
+    ((petType['interactImages'] as List?) ?? const [])
+        .cast<String>();
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 350),
