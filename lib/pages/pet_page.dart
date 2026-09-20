@@ -584,6 +584,49 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
 
       List<Map<String, dynamic>> pets = [];
 
+      final choiceState =
+      await api.fetchPetChoiceState();
+
+// 先把 5000 自選券寵物同步進 8000 pets
+      final choicePets =
+      choiceState['pets'];
+
+      if (choicePets is List) {
+        for (final raw in choicePets) {
+          if (raw is! Map) continue;
+
+          final speciesKey =
+              raw['species_key']
+                  ?.toString()
+                  .trim() ??
+                  '';
+
+          final speciesName =
+              raw['species_name']
+                  ?.toString()
+                  .trim() ??
+                  '寵物';
+
+          if (speciesKey.isEmpty) {
+            continue;
+          }
+
+          try {
+            await api.syncChoicePet(
+              userId: currentUserId,
+              speciesKey: speciesKey,
+              speciesName: speciesName,
+            );
+          } catch (e) {
+            debugPrint(
+              '❌ 同步自選券寵物失敗 '
+                  '$speciesKey：$e',
+            );
+          }
+        }
+      }
+
+// 同步完成後，再讀一次 8000 pets
       try {
         pets = await api.fetchPets(
           userId: currentUserId,
@@ -593,9 +636,6 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
           '❌ fetchPets 失敗：$e',
         );
       }
-
-      final choiceState =
-      await api.fetchPetChoiceState();
 
       if (!mounted) return;
 
@@ -629,57 +669,18 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
           ).clamp(0.0, 1.0) as num)
               .toDouble(),
 
-          // 死亡狀態
           'is_dead':
           pet['is_dead'] == true ||
               pet['is_dead'] == 1,
 
-          'dead_at': pet['dead_at'],
+          'dead_at':
+          pet['dead_at'],
 
           'from_choice_ticket': false,
         };
       }
 
-      // 5000 自選券寵物
-      final choicePets =
-      choiceState['pets'];
 
-      if (choicePets is List) {
-        for (final raw in choicePets) {
-          if (raw is! Map) continue;
-
-          final key =
-              raw['species_key']
-                  ?.toString() ??
-                  '';
-
-          if (key.isEmpty ||
-              unlockedMap.containsKey(key)) {
-            continue;
-          }
-
-          unlockedMap[key] = {
-            'id':
-            int.tryParse(
-              raw['id']
-                  ?.toString() ??
-                  '',
-            ) ??
-                0,
-
-            'name':
-            (raw['species_name'] ??
-                '寵物')
-                .toString(),
-
-            'satiety': 0.45,
-
-            'is_dead': false,
-
-            'from_choice_ticket': true,
-          };
-        }
-      }
 
       if (!mounted) return;
 

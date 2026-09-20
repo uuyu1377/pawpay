@@ -130,6 +130,23 @@ class GameApiService {
     return _asListOfMaps(res.data);
   }
 
+  Future<Map<String, dynamic>> syncChoicePet({
+    required int userId,
+    required String speciesKey,
+    required String speciesName,
+  }) async {
+    final res = await _dio.post(
+      '$baseUrl/game/pets/sync-choice',
+      data: {
+        'user_id': userId,
+        'species_key': speciesKey,
+        'species_name': speciesName,
+      },
+    );
+
+    return _asMap(res.data);
+  }
+
   Future<Map<String, dynamic>> feedPet({
     int userId = 1,
     required int petId,
