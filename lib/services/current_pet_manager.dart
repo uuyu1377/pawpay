@@ -15,15 +15,15 @@ class CurrentPetManager {
     'sloth': 'assets/pets/sloth.png',
     'fox': 'assets/pets/fox.png',
 
-    'cute_dog': 'assets/pets/shiba.png',
+    'shiba_dog': 'assets/pets/shiba.png',
     'pomeranian': 'assets/pets/pomeranian.png',
-    'norm_dog': 'assets/pets/calm_dog.png',
-    'wagging_dog': 'assets/pets/clingy_dog.png',
+    'calm_dog': 'assets/pets/calm_dog.png',
+    'clingy_dog': 'assets/pets/clingy_dog.png',
 
-    'lovely_cat': 'assets/pets/love_cat.png',
-    'blue_cat': 'assets/pets/work_cat.png',
+    'love_cat': 'assets/pets/love_cat.png',
+    'work_cat': 'assets/pets/work_cat.png',
     'rocket_cat': 'assets/pets/rocket_cat.png',
-    'loader_cat': 'assets/pets/waiting_cat.png',
+    'waiting_cat': 'assets/pets/waiting_cat.png',
 
     'bear': 'assets/pets/bear.png',
     'bee': 'assets/pets/bee.png',
