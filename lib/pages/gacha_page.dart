@@ -37,13 +37,13 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     {'key': 'parrot',      'name': '鸚鵡',     'weight': 95},
     {'key': 'sloth',       'name': '樹懶',     'weight': 76},
     {'key': 'fox',         'name': '狐狸',     'weight': 75},
-    {'key': 'cute_dog',    'name': '柴柴',     'weight': 47},
+    {'key': 'shiba_dog',   'name': '柴柴',     'weight': 47},
     {'key': 'pomeranian',  'name': '博美犬',   'weight': 47},
-    {'key': 'norm_dog',    'name': '諾姆犬',   'weight': 47},
-    {'key': 'wagging_dog', 'name': '甩尾狗',   'weight': 46},
-    {'key': 'lovely_cat',  'name': '愛心貓',   'weight': 23},
-    {'key': 'blue_cat',    'name': '工作貓',   'weight': 23},
-    {'key': 'loader_cat',  'name': '等待貓',   'weight': 23},
+    {'key': 'calm_dog',    'name': '諾姆犬',   'weight': 47},
+    {'key': 'clingy_dog',  'name': '甩尾狗',   'weight': 46},
+    {'key': 'love_cat',    'name': '愛心貓',   'weight': 23},
+    {'key': 'work_cat',    'name': '工作貓',   'weight': 23},
+    {'key': 'waiting_cat', 'name': '等待貓',   'weight': 23},
     {'key': 'rocket_cat',  'name': '火箭貓',   'weight': 24},
     {'key': 'bear',        'name': '熊熊',     'weight': 10},
     {'key': 'bee',         'name': '蜜蜂',     'weight': 6},
@@ -162,14 +162,23 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
           'duplicate': apiResult['duplicate'] == true, // ★ 任務3：帶入後端回傳的「是否為已擁有的同物種」
         };
       }
-    } catch (_) {
-      // ★ 斷線備援（保留你原本的本地機率池）：一樣扣「扭蛋幣」。
+    } catch (e) {
+      // ★ 修正：原本這裡把任何失敗（包括 gachaDraw 真正寫入資料庫失敗）都靜默吞掉，
+      //   直接用本地假抽獎結果騙使用者「抽到了」，但其實根本沒存進 pets 表，
+      //   導致「扭蛋角色不會出現在寵物列表」。
+      //   先把錯誤印出來方便除錯，並且把這次結果標記成 offline，讓彈窗提醒使用者這是離線模擬、沒有真的存檔。
+      debugPrint('❌ 扭蛋抽獎失敗，改用離線模擬結果：$e');
+
+      // 斷線備援（保留原本的本地機率池）：一樣扣「扭蛋幣」。
       //   • spendResult == null：尚未成功扣款，改在本地扣掉扭蛋幣。
       //   • spendResult != null：已在伺服器扣過款，不重複扣，直接用本地池給結果。
       if (mounted && spendResult == null) {
         setState(() => _userCoins = (_userCoins - cost).clamp(0, 999999));
       }
       result = _runLocalGacha();
+      if (result != null) {
+        result['offline'] = true; // ★ 標記：這是離線模擬，沒有真的寫進寵物清單
+      }
     }
 
     if (!mounted) return;
@@ -253,6 +262,7 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
   void _showResultDialog(Map<String, dynamic>? res) {
     final isNone = res == null;
     final isDuplicate = res?['duplicate'] == true;
+    final isOffline = res?['offline'] == true; // ★ 新增：是否為離線模擬結果（未真正存入資料庫）
     final type = res?['type']?.toString() ?? '';
     final imagePath = CurrentPetManager.petImageMap[type];
     final fallback = isNone ? Icons.spa_rounded : _getPetIcon(type);
@@ -274,15 +284,15 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
                     Icon(Icons.pets_rounded, size: 14, color: p.accentInk),
                     const SizedBox(width: 7),
                     Text('PAWPAY · 小小驚喜', style: TextStyle(color: p.accentInk,
-                      fontSize: 11, letterSpacing: 1.5, fontWeight: FontWeight.w800)),
+                        fontSize: 11, letterSpacing: 1.5, fontWeight: FontWeight.w800)),
                   ]),
                   const SizedBox(height: 18),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
                     decoration: BoxDecoration(color: p.accentSoft,
-                      borderRadius: BorderRadius.circular(30), border: Border.all(color: Colors.white)),
+                        borderRadius: BorderRadius.circular(30), border: Border.all(color: Colors.white)),
                     child: Text(isNone ? '下次好運' : (isDuplicate ? '已擁有的夥伴' : '新夥伴登場'),
-                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: p.accentInk)),
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: p.accentInk)),
                   ),
                   const SizedBox(height: 8),
                   TweenAnimationBuilder<double>(
@@ -290,7 +300,7 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
                     duration: MediaQuery.of(ctx).disableAnimations ? Duration.zero : const Duration(milliseconds: 650),
                     curve: Curves.easeOutCubic,
                     builder: (_, value, __) => PawCapsuleStage(
-                      imagePath: imagePath, fallbackIcon: fallback, progress: value),
+                        imagePath: imagePath, fallbackIcon: fallback, progress: value),
                   ),
                   const SizedBox(height: 4),
                   Semantics(liveRegion: true, child: Text(
@@ -301,12 +311,28 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
                   const SizedBox(height: 12),
                   Text(
                     isNone ? '獲得了再接再厲飼料球！'
-                      : (isDuplicate ? '你已經擁有這隻夥伴了（已擁有）' : '新的夥伴已經加入圖鑑囉！'),
+                        : (isDuplicate ? '你已經擁有這隻夥伴了（已擁有）' : '新的夥伴已經加入圖鑑囉！'),
                     textAlign: TextAlign.center, style: TextStyle(color: p.ink2, fontSize: 14, height: 1.6),
                   ),
+                  // ★ 新增：離線模擬時明確提醒，避免使用者以為真的抽到、之後找不到寵物而困惑
+                  if (isOffline && !isNone) ...[
+                    const SizedBox(height: 10),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '⚠️ 目前連線不穩，這是離線模擬結果，不會出現在你的寵物清單裡，請稍後恢復連線再抽一次',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.orange[800], fontSize: 12, height: 1.5, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
                   const SizedBox(height: 26),
                   PawToyButton(label: '收下', onPressed: () => Navigator.pop(ctx),
-                    icon: isNone ? Icons.check_rounded : Icons.favorite_rounded),
+                      icon: isNone ? Icons.check_rounded : Icons.favorite_rounded),
                 ]),
               ),
             ),
@@ -322,14 +348,14 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
       case 'parrot':      return Colors.yellowAccent;
       case 'fox':         return Colors.deepOrangeAccent;
       case 'sloth':       return Colors.brown[400]!;
-      case 'cute_dog':    return const Color(0xFFFF8A65);
+      case 'shiba_dog':   return const Color(0xFFFF8A65);
       case 'pomeranian':  return const Color(0xFFEC407A);
-      case 'norm_dog':    return const Color(0xFF66BB6A);
-      case 'wagging_dog': return const Color(0xFF29B6F6);
-      case 'lovely_cat':  return const Color(0xFFE91E63);
-      case 'blue_cat':    return const Color(0xFF5C6BC0);
+      case 'calm_dog':    return const Color(0xFF66BB6A);
+      case 'clingy_dog':  return const Color(0xFF29B6F6);
+      case 'love_cat':    return const Color(0xFFE91E63);
+      case 'work_cat':    return const Color(0xFF5C6BC0);
       case 'rocket_cat':  return const Color(0xFF26A69A);
-      case 'loader_cat':  return const Color(0xFFBA68C8);
+      case 'waiting_cat': return const Color(0xFFBA68C8);
       case 'bear':        return const Color(0xFF8D6E63);
       case 'bee':         return const Color(0xFFFFD600);
       case 'giraffe':     return const Color(0xFFFFCA28);
@@ -344,14 +370,14 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
       case 'parrot':      return FontAwesomeIcons.dove;
       case 'fox':         return Icons.auto_awesome;
       case 'sloth':       return Icons.hourglass_bottom_rounded;
-      case 'cute_dog':    return Icons.pets;
+      case 'shiba_dog':   return Icons.pets;
       case 'pomeranian':  return Icons.pets;
-      case 'norm_dog':    return Icons.pets;
-      case 'wagging_dog': return Icons.pets;
-      case 'lovely_cat':  return FontAwesomeIcons.cat;
-      case 'blue_cat':    return FontAwesomeIcons.cat;
+      case 'calm_dog':    return Icons.pets;
+      case 'clingy_dog':  return Icons.pets;
+      case 'love_cat':    return FontAwesomeIcons.cat;
+      case 'work_cat':    return FontAwesomeIcons.cat;
       case 'rocket_cat':  return Icons.rocket_launch_rounded;
-      case 'loader_cat':  return FontAwesomeIcons.cat;
+      case 'waiting_cat': return FontAwesomeIcons.cat;
       case 'bear':        return FontAwesomeIcons.tree;
       case 'bee':         return Icons.sports_kabaddi_rounded;
       case 'giraffe':     return Icons.forest_rounded;

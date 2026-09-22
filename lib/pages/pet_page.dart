@@ -272,11 +272,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'tagColor': Color(0xFFFF8F00),
 
       'interactImages': [
-      'assets/pets/dog_interact_1.png',
-      'assets/pets/dog_interact_2.png',
-      'assets/pets/dog_interact_3.png',
+        'assets/pets/dog_interact_1.png',
+        'assets/pets/dog_interact_2.png',
+        'assets/pets/dog_interact_3.png',
       ],
-      },
+    },
     {
       'key': 'cat',
       'name': '貓咪',
@@ -509,6 +509,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
 
   // species_key -> pet data from API
   Map<String, Map<String, dynamic>> _unlockedPets = {};
+  List<Map<String, dynamic>> _orderedPetTypes = [];
 
   final List<Map<String, dynamic>> _foodShop = [
     {'name': '厚切牛排', 'price': 250, 'gain': 0.35, 'img': '🥩'},
@@ -521,6 +522,10 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
 
   @override
   void initState() {
+    _orderedPetTypes =
+    List<Map<String, dynamic>>.from(
+      _allPetTypes,
+    );
     super.initState();
 
     _floatController = AnimationController(
@@ -553,6 +558,58 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
             }
           },
         );
+  }
+  void _sortPetTypesByObtainedTime() {
+    final originalOrder = <String, int>{};
+
+    for (int i = 0; i < _allPetTypes.length; i++) {
+      originalOrder[
+      _allPetTypes[i]['key'] as String
+      ] = i;
+    }
+
+    _orderedPetTypes =
+    List<Map<String, dynamic>>.from(
+      _allPetTypes,
+    );
+
+    _orderedPetTypes.sort((a, b) {
+      final keyA = a['key'] as String;
+      final keyB = b['key'] as String;
+
+      final petA = _unlockedPets[keyA];
+      final petB = _unlockedPets[keyB];
+
+      // 已解鎖放前面
+      if (petA != null && petB == null) {
+        return -1;
+      }
+
+      if (petA == null && petB != null) {
+        return 1;
+      }
+
+      // 都已解鎖 → 比取得時間
+      if (petA != null && petB != null) {
+        final timeA = DateTime.tryParse(
+          petA['obtained_at']?.toString() ?? '',
+        );
+
+        final timeB = DateTime.tryParse(
+          petB['obtained_at']?.toString() ?? '',
+        );
+
+        if (timeA != null && timeB != null) {
+          return timeA.compareTo(timeB);
+        }
+      }
+
+      // 都未解鎖 → 維持原本排列
+      return (originalOrder[keyA] ?? 999)
+          .compareTo(
+        originalOrder[keyB] ?? 999,
+      );
+    });
   }
 
   Future<void> _loadPets({
@@ -677,6 +734,8 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
           pet['dead_at'],
 
           'from_choice_ticket': false,
+
+          'obtained_at': pet['obtained_at'],
         };
       }
 
@@ -693,8 +752,9 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
             ) ??
                 0;
 
-        _unlockedPets =
-            unlockedMap;
+        _unlockedPets = unlockedMap;
+
+        _sortPetTypesByObtainedTime();
 
         _isLoading = false;
 
@@ -705,7 +765,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
               _currentPetKey,
             )) {
           final idx =
-          _allPetTypes.indexWhere(
+          _orderedPetTypes.indexWhere(
                 (p) =>
                 unlockedMap.containsKey(
                   p['key'],
@@ -743,9 +803,39 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       );
     }
   }
-  String get _currentPetKey => _allPetTypes[_currentPage]['key'] as String;
-  bool get _currentPetUnlocked => _unlockedPets.containsKey(_currentPetKey);
-  Map<String, dynamic>? get _currentPetData => _unlockedPets[_currentPetKey];
+
+  String get _currentPetKey =>
+      _orderedPetTypes[_currentPage]['key'] as String;
+
+  bool get _currentPetUnlocked =>
+      _unlockedPets.containsKey(_currentPetKey);
+
+  Map<String, dynamic>? get _currentPetData =>
+      _unlockedPets[_currentPetKey];
+
+  String _getPetDisplayImage(
+      Map<String, dynamic> petType,
+      Map<String, dynamic>? petData,
+      ) {
+    final bool isDead =
+        petData?['is_dead'] == true ||
+            petData?['is_dead'] == 1 ||
+            petData?['is_dead']?.toString() == '1';
+
+    if (isDead) {
+      return _ghostImage;
+    }
+
+    // ★ 修正：原本這裡完全沒有檢查 _interactingPetKey / _interactionImage，
+    //   導致 _playRandomInteraction() 設定好互動照片後，畫面卻永遠只顯示待機圖，
+    //   點擊等於沒有反應。加上這段判斷，互動中的那隻寵物才會真的換成隨機互動照片。
+    final String key = petType['key'] as String;
+    if (_interactingPetKey == key && _interactionImage != null) {
+      return _interactionImage!;
+    }
+
+    return petType['idleImage'] as String;
+  }
 
   double _toDouble(dynamic v, {double fallback = 0.0}) {
     if (v is num) return v.toDouble();
@@ -1131,7 +1221,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
   // ── Top bar ────────────────────────────────────────────────────────────────
 
   Widget _buildTopBar() {
-    final petType = _allPetTypes[_currentPage];
+    final petType = _orderedPetTypes[_currentPage];
     final displayName = _currentPetUnlocked
         ? (_currentPetData!['name'] as String)
         : petType['name'] as String;
@@ -1156,15 +1246,15 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
           Expanded(
             child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               ClipRRect(
-                borderRadius: BorderRadius.circular(6),
+                borderRadius: BorderRadius.circular(8),
                 child: Image.asset(
                   petType['idleImage'] as String,
-                  width: 22,
-                  height: 22,
+                  width: 32,
+                  height: 32,
                   fit: BoxFit.contain,
                   errorBuilder: (context, error, stackTrace) => Text(
                     petType['emoji'] as String,
-                    style: const TextStyle(fontSize: 20),
+                    style: const TextStyle(fontSize: 28),
                   ),
                 ),
               ),
@@ -1223,7 +1313,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
   // ── Status bar (satiety or locked notice) ─────────────────────────────────
 
   Widget _buildStatusBar() {
-    final petType = _allPetTypes[_currentPage];
+    final petType = _orderedPetTypes[_currentPage];
     final ringColor = petType['ringColor'] as Color;
 
     if (!_currentPetUnlocked) {
@@ -1379,14 +1469,14 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
     return PageView.builder(
       controller: _pageController,
       onPageChanged: (i) => setState(() => _currentPage = i),
-      itemCount: _allPetTypes.length,
+      itemCount: _orderedPetTypes.length,
       itemBuilder: (context, index) {
         final isCenter = index == _currentPage;
         return AnimatedScale(
           scale: isCenter ? 1.0 : 0.86,
           duration: const Duration(milliseconds: 280),
           curve: Curves.easeOut,
-          child: _buildPetCard(_allPetTypes[index], isCenter),
+          child: _buildPetCard(_orderedPetTypes[index], isCenter),
         );
       },
     );
@@ -1471,10 +1561,10 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
                         );
                       },
                       child: Image.asset(
-                        _interactingPetKey == key &&
-                            _interactionImage != null
-                            ? _interactionImage!
-                            : idleImage,
+                        _getPetDisplayImage(
+                          petType,
+                          petData,
+                        ),
                         width: 320,
                         height: 320,
                         fit: BoxFit.contain,
@@ -2004,9 +2094,9 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
   Widget _buildPageIndicator() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
-      children: List.generate(_allPetTypes.length, (i) {
+      children: List.generate(_orderedPetTypes.length, (i) {
         final isSelected = i == _currentPage;
-        final petType = _allPetTypes[i];
+        final petType = _orderedPetTypes[i];
         final isUnlocked = _unlockedPets.containsKey(petType['key']);
         return AnimatedContainer(
           duration: const Duration(milliseconds: 300),
@@ -2029,7 +2119,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
 
   Widget _buildShopArea() {
     final bottomPad = MediaQuery.of(context).padding.bottom;
-    final petType = _allPetTypes[_currentPage];
+    final petType = _orderedPetTypes[_currentPage];
     final ringColor = petType['ringColor'] as Color;
 
     final interactImages =
@@ -2078,43 +2168,43 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       final cellW = (box.maxWidth - gap * (cols - 1)) / cols;
       final cellH = (box.maxHeight - gap * (rows - 1)) / rows;
       return GridView.builder(
-      physics: const NeverScrollableScrollPhysics(),
-      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: cols,
-        childAspectRatio: cellW / cellH,
-        mainAxisSpacing: gap,
-        crossAxisSpacing: gap,
-      ),
-      itemCount: _foodShop.length,
-      itemBuilder: (context, index) {
-        final item = _foodShop[index];
-        return InkWell(
-          onTap: () => _feedPet(item),
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-            decoration: BoxDecoration(
-              color: accentColor.withOpacity(0.07),
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: accentColor.withOpacity(0.2)),
-            ),
-            child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-              Text(item['img'].toString(), style: const TextStyle(fontSize: 26)),
-              const SizedBox(height: 3),
-              Text(
-                item['name'].toString(),
-                style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
-                overflow: TextOverflow.ellipsis,
+        physics: const NeverScrollableScrollPhysics(),
+        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: cols,
+          childAspectRatio: cellW / cellH,
+          mainAxisSpacing: gap,
+          crossAxisSpacing: gap,
+        ),
+        itemCount: _foodShop.length,
+        itemBuilder: (context, index) {
+          final item = _foodShop[index];
+          return InkWell(
+            onTap: () => _feedPet(item),
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              decoration: BoxDecoration(
+                color: accentColor.withOpacity(0.07),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: accentColor.withOpacity(0.2)),
               ),
-              const SizedBox(height: 2),
-              Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-                const Icon(Icons.monetization_on, color: Colors.orange, size: 11),
-                const SizedBox(width: 2),
-                Text('${item['price']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.brown)),
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Text(item['img'].toString(), style: const TextStyle(fontSize: 26)),
+                const SizedBox(height: 3),
+                Text(
+                  item['name'].toString(),
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                  const Icon(Icons.monetization_on, color: Colors.orange, size: 11),
+                  const SizedBox(width: 2),
+                  Text('${item['price']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.brown)),
+                ]),
               ]),
-            ]),
-          ),
-        );
-      },
+            ),
+          );
+        },
       );
     });
   }

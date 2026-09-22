@@ -47,14 +47,14 @@ const Map<String, String> _kPetImageMap = {
   'parrot': 'assets/pets/parrot_action.png',
   'sloth': 'assets/pets/sloth_action.png',
   'fox': 'assets/pets/fox_action.png',
-  'cute_dog': 'assets/pets/shiba_action.png',
+  'shiba_dog': 'assets/pets/shiba_action.png',
   'pomeranian': 'assets/pets/pomeranian_action.png',
-  'norm_dog': 'assets/pets/calm_dog_action.png',
-  'wagging_dog': 'assets/pets/clingy_dog_action.png',
-  'lovely_cat': 'assets/pets/love_cat_action.png',
-  'blue_cat': 'assets/pets/work_cat_action.png',
+  'calm_dog': 'assets/pets/calm_dog_action.png',
+  'clingy_dog': 'assets/pets/clingy_dog_action.png',
+  'love_cat': 'assets/pets/love_cat_action.png',
+  'work_cat': 'assets/pets/work_cat_action.png',
   'rocket_cat': 'assets/pets/rocket_cat_action.png',
-  'loader_cat': 'assets/pets/waiting_cat_action.png',
+  'waiting_cat': 'assets/pets/waiting_cat_action.png',
   'bear': 'assets/pets/bear_action.png',
   'bee': 'assets/pets/bee_action.png',
   'giraffe': 'assets/pets/giraffe_action.png',
@@ -694,7 +694,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // 柴犬
     // ===================================================
 
-      case 'cute_dog':
+      case 'shiba_dog':
         setState(() {
           _activeSkillUsed = true;
           _isRolling = true;
@@ -739,7 +739,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // 佛系狗
     // ===================================================
 
-      case 'norm_dog':
+      case 'calm_dog':
         setState(() {
           _calmDogProtection =
           true;
@@ -757,7 +757,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // 黏人狗
     // ===================================================
 
-      case 'wagging_dog':
+      case 'clingy_dog':
         final targets =
         _players
             .where(
@@ -791,7 +791,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // 愛心貓
     // ===================================================
 
-      case 'lovely_cat':
+      case 'love_cat':
         setState(() {
           player.money += 2500;
 
@@ -810,7 +810,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // 工作貓
     // ===================================================
 
-      case 'blue_cat':
+      case 'work_cat':
         final owned =
         _currentPath
             .where(
@@ -897,7 +897,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // 等待貓
     // ===================================================
 
-      case 'loader_cat':
+      case 'waiting_cat':
         setState(() {
           _waitingCatDelayRent =
           true;
@@ -1054,7 +1054,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // =====================================================
 
     if (p.id == 0 &&
-        _currentPetKey == 'loader_cat' &&
+        _currentPetKey == 'waiting_cat' &&
         _waitingCatInterestReady) {
       setState(() {
         p.money += 800;
@@ -1168,7 +1168,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // =====================================================
 
     if (p.id == 0 &&
-        _currentPetKey == 'cute_dog' &&
+        _currentPetKey == 'shiba_dog' &&
         dice1 == dice2) {
       steps += 1;
 
@@ -1230,7 +1230,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     if (p.id != 0) return;
 
     switch (_currentPetKey) {
-      case 'wagging_dog':
+      case 'clingy_dog':
         setState(() {
           p.money += 500;
         });
@@ -1420,7 +1420,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // -----------------------------------------------------
 
     if (p.id == 0 &&
-        _currentPetKey == 'norm_dog' &&
+        _currentPetKey == 'calm_dog' &&
         !_usedPassiveSkills.contains(
           'calm_loss',
         )) {
@@ -1440,7 +1440,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     // -----------------------------------------------------
 
     if (p.id == 0 &&
-        _currentPetKey == 'loader_cat' &&
+        _currentPetKey == 'waiting_cat' &&
         _waitingCatDelayRent) {
       _waitingCatDelayRent = false;
 
@@ -1550,7 +1550,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     }
 
     // 工作貓被動
-    if (_currentPetKey == 'blue_cat') {
+    if (_currentPetKey == 'work_cat') {
       cost = (cost * 0.9).round();
     }
 
@@ -1596,7 +1596,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       if (delta < 0) {
         // 佛系狗主動：完全免疫
         if (_currentPetKey ==
-            'norm_dog' &&
+            'calm_dog' &&
             _calmDogProtection) {
           delta = 0;
 
@@ -1628,7 +1628,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
         // 佛系狗被動
         else if (_currentPetKey ==
-            'norm_dog' &&
+            'calm_dog' &&
             !_usedPassiveSkills.contains(
               'calm_loss',
             )) {
@@ -1668,7 +1668,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   }
   void _checkLovelyCatGuard() {
     if (_currentPetKey !=
-        'lovely_cat') {
+        'love_cat') {
       return;
     }
 
@@ -1833,15 +1833,15 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                     final owners = _players.where((p) => p.id == node.ownerId);
                     final owner = owners.isEmpty ? null : owners.first;
                     return BoardSite3D(name: node.name, kind: node.type.name,
-                      cost: node.baseCost, rent: node.rent, level: node.level,
-                      ownerColor: owner?.color, ownerName: owner?.name);
+                        cost: node.baseCost, rent: node.rent, level: node.level,
+                        ownerColor: owner?.color, ownerName: owner?.name);
                   }).toList(),
                   pawns: _players.where((p) => !p.isBankrupt).map((p) => BoardPawn3D(
-                    id: p.id, name: p.name, step: p.pathStep, color: p.color,
-                    imagePath: p.animationPath, emoji: p.emoji)).toList(),
+                      id: p.id, name: p.name, step: p.pathStep, color: p.color,
+                      imagePath: p.animationPath, emoji: p.emoji)).toList(),
                   activePlayerId: _players[_currentPlayerIdx].id,
                   nextStep: !_gameOver && _currentPlayerIdx == 0
-                    ? (_players[0].pathStep + 1) % _currentPath.length : null,
+                      ? (_players[0].pathStep + 1) % _currentPath.length : null,
                   magic: isMagic, accent: AppPalette.of(context).accent,
                 )),
                 _buildBottomBar(),
@@ -2521,7 +2521,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
             onCancel: () {
               // 等待貓被動
               if (_currentPetKey ==
-                  'loader_cat') {
+                  'waiting_cat') {
                 _waitingCatInterestReady =
                 true;
 
@@ -2760,9 +2760,9 @@ class MagicIslandPainter extends CustomPainter {
 
     // A raised floating platform underneath the original circular route.
     final platform = Path()..addOval(Rect.fromCenter(
-      center: Offset(w * .5, h * .53), width: w * .92, height: h * .84));
+        center: Offset(w * .5, h * .53), width: w * .92, height: h * .84));
     paintRaisedIsland(canvas, platform,
-      side: Color.lerp(accent, const Color(0xFF786794), .45)!, depth: h * .032);
+        side: Color.lerp(accent, const Color(0xFF786794), .45)!, depth: h * .032);
     canvas.drawPath(platform, Paint()..shader = LinearGradient(
       begin: Alignment.topLeft, end: Alignment.bottomRight,
       colors: [HSLColor.fromColor(accent).withLightness(.96).toColor(),
