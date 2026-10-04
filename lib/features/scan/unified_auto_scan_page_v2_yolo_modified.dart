@@ -13,6 +13,7 @@ import 'package:dio/dio.dart';
 // 2. 加入你的 RemoteOcrService 路徑
 import '../../services/remote_ocr_service.dart';
 import '../../services/yolo_qr_pipeline_letterbox.dart';
+import '../../services/invoice_image_preprocessor.dart';
 
 enum ScanMode { electronicQr, traditionalOcr }
 
@@ -68,6 +69,10 @@ class _UnifiedAutoScanPageV2State extends State<UnifiedAutoScanPageV2> with Tick
 
   static const int kElectronicTimeoutSeconds = 10;
   static const int kTraditionalAutoShootSeconds = 5;
+
+  // 連續拍糊的次數；超過上限就照樣送 OCR，避免門檻設太嚴卡住使用者
+  int _blurRetryCount = 0;
+  static const int kMaxBlurRetries = 2;
 
   @override
   void initState() {
@@ -257,7 +262,7 @@ class _UnifiedAutoScanPageV2State extends State<UnifiedAutoScanPageV2> with Tick
     try {
       final cams = await availableCameras();
       final back = cams.firstWhere((c) => c.lensDirection == CameraLensDirection.back, orElse: () => cams.first);
-      final controller = CameraController(back, ResolutionPreset.high, enableAudio: false, imageFormatGroup: ImageFormatGroup.jpeg);
+      final controller = CameraController(back, ResolutionPreset.veryHigh, enableAudio: false, imageFormatGroup: ImageFormatGroup.jpeg);
       await controller.initialize();
       try { await controller.setFocusMode(FocusMode.auto); await controller.setExposureMode(ExposureMode.auto); } catch (_) {}
       await _disposeCamera();
@@ -407,8 +412,27 @@ class _UnifiedAutoScanPageV2State extends State<UnifiedAutoScanPageV2> with Tick
 
       final modeStr = (_mode == ScanMode.traditionalOcr) ? 'traditional' : 'electronic';
 
+      // 前處理：修正方向、限制尺寸、傳統發票去紅色干擾、檢查模糊
+      final pre = await InvoiceImagePreprocessor.process(
+        file,
+        traditional: _mode == ScanMode.traditionalOcr,
+      );
+      if (!mounted) return;
+
+      if (_mode == ScanMode.traditionalOcr && pre.isBlurry && _blurRetryCount < kMaxBlurRetries) {
+        _blurRetryCount++;
+        setState(() {
+          _processing = false;
+          _hint = '照片有點糊，拿穩一點、靠近一點再試一次～';
+        });
+        _startTraditionalAutoShoot();
+        return;
+      }
+      _blurRetryCount = 0;
+
       // 呼叫後端
-      final rawText = await RemoteOcrService.visionOcr(file, mode: modeStr);
+      final rawText = await RemoteOcrService.visionOcr(pre.file, mode: modeStr);
+      debugPrint('===== OCR原文 =====\n$rawText\n===== OCR原文結束 =====');
 
       if (!mounted) return;
 

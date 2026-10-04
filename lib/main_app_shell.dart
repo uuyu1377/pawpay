@@ -124,6 +124,8 @@ class _MainAppShellState extends State<MainAppShell> {
   String? _pendingAiModel;
   DateTime? _pendingOccurredAt;
   List<String> _pendingTags = [];
+  // ★ 新增：後端判斷金額可能被看錯時的候選金額（例如 [378, 370]），顯示在確認框金額下方讓使用者點選
+  List<double> _pendingAmountCandidates = [];
 
   final GlobalKey<HomePageState> _homeKey = GlobalKey<HomePageState>();
   // ★ 即時同步：設定頁被 IndexedStack 保留在記憶體，切回來不會自動重載；用這把 key 主動叫它 reload。
@@ -1716,6 +1718,7 @@ class _MainAppShellState extends State<MainAppShell> {
 
   void _processAiResponse(dynamic resJson) {
     final data = resJson['data'];
+    debugPrint('🔎 統編檢查：${data['tax_debug']}'); // ★ 新增（除錯用）：後端統編查詢過程
     double amount = data['amount'] != null ? (data['amount'] as num).toDouble() : 0.0;
     String mainCat = data['matched_main_category'] ?? "";
     String subCat = data['matched_sub_category'] ?? "";
@@ -1895,6 +1898,15 @@ class _MainAppShellState extends State<MainAppShell> {
       //   使用者若在確認框改掉，_saveAIResult 拿到的就會不同 → 判定為修正。
       _pendingAiMainForMemory = mainCat;
       _pendingAiSubForMemory = subCat;
+
+      // ★ 新增：讀取後端給的候選金額（沒有就清空）
+      final rawCandidates = data['amount_candidates'];
+      _pendingAmountCandidates = (data['amount_uncertain'] == true && rawCandidates is List)
+          ? rawCandidates
+          .map((e) => e is num ? e.toDouble() : double.tryParse(e.toString()))
+          .whereType<double>()
+          .toList()
+          : <double>[];
       if (isIncome) {
         // 防呆校正：就算後端主分類偷懶，我們也幫它強制冠上一個預設收入類別
         if (mainCat.isEmpty || mainCat == '其他支出' || mainCat == '收入') mainCat = '其他收入';
@@ -1903,6 +1915,38 @@ class _MainAppShellState extends State<MainAppShell> {
         _showConfirmationDialog(amount, subCat, mainCat, displayNote.trim(), comment);
       }
     }
+  }
+
+  // ★ 新增：金額候選按鈕（例如「378」「370」），點一下就換掉金額欄；備註裡的同一個金額也一起換。
+  //   沒有候選金額時不顯示任何東西，確認框跟原本一模一樣。
+  Widget _buildAmountCandidateChips(
+      TextEditingController amountController,
+      TextEditingController noteController,
+      void Function(void Function()) setStateDialog,
+      ) {
+    if (_pendingAmountCandidates.length < 2) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Wrap(
+        spacing: 8,
+        children: _pendingAmountCandidates.map((v) {
+          final text = v.toStringAsFixed(0);
+          return ChoiceChip(
+            label: Text('$_pendingCurrencySymbol $text', style: const TextStyle(fontSize: 16)),
+            selected: amountController.text.trim() == text,
+            onSelected: (_) {
+              final prev = amountController.text.trim();
+              setStateDialog(() {
+                amountController.text = text;
+                if (prev.isNotEmpty && prev != text) {
+                  noteController.text = noteController.text.replaceAll('\$$prev', '\$$text');
+                }
+              });
+            },
+          );
+        }).toList(),
+      ),
+    );
   }
 
   void _showErrorSnackBar(String msg) {
@@ -2040,6 +2084,7 @@ class _MainAppShellState extends State<MainAppShell> {
                         decoration: InputDecoration(prefixText: "$_pendingCurrencySymbol "), // ★ 合併自朋友版(C)
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                       ),
+                      _buildAmountCandidateChips(amountController, noteController, setStateDialog), // ★ 新增
                       const SizedBox(height: 16),
 
                       const Text("備註", style: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -2209,6 +2254,7 @@ class _MainAppShellState extends State<MainAppShell> {
                         decoration: InputDecoration(prefixText: "+ $_pendingCurrencySymbol "), // ★ 合併自朋友版(C)
                         style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.green),
                       ),
+                      _buildAmountCandidateChips(amountController, noteController, setStateDialog), // ★ 新增
                       const SizedBox(height: 16),
 
                       const Text("備註", style: TextStyle(fontSize: 12, color: Colors.grey)),
@@ -2726,7 +2772,7 @@ class _MainAppShellState extends State<MainAppShell> {
       // Update the shared ledger immediately after the server confirms success.
       // Every total/analysis reads this same list, not a second local ledger.
       setState(() => _transactions = _transactions
-        .where((tx) => tx.id != review.transactionId).toList());
+          .where((tx) => tx.id != review.transactionId).toList());
     }
     await _loadData();
   }
