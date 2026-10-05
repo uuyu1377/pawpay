@@ -50,9 +50,6 @@ if not OPENAI_API_KEY:
     print("❌ 警告：找不到 OPENAI_API_KEY")
 
 JWT_SECRET = os.environ["JWT_SECRET"]
-    "JWT_SECRET",
-    "your-super-secret-jwt-key",
-)
 
 MODEL = os.getenv(
     "OPENAI_MODEL",
@@ -5948,3 +5945,4 @@ register_recurring_income_review(
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
+
