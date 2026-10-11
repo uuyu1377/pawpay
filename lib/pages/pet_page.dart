@@ -439,7 +439,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'name': '火箭貓',
       'emoji': '😸', // ★ 修改：原本是火箭 🚀
       'idleImage': 'assets/pets/rocket_cat_action.png',
-      'feedAnimation': 'assets/pets/rocket_cat_eating.webp', // ★ 修正：實際檔名多一個底線，原本找不到圖所以火箭貓不會吃東西
+      'feedAnimation': 'assets/pets/rocket_cat_eating.webp', // ★ 修正：圖檔已改名成跟其他寵物一致（拿掉多的底線）
       'bgGradient': [Color(0xFFE0F2F1), Color(0xFFB2DFDB)],
       'ringColor': Color(0xFF26A69A),
       'tagColor': Color(0xFF00695C),

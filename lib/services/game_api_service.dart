@@ -45,6 +45,61 @@ class GameApiService {
     ),
   );
 
+  // ===================================================================
+  // ★ 新增：好友對戰（輪流制）。遊戲規則全部在 8000 後端計算，手機只送操作。
+  // ===================================================================
+  Future<Map<String, dynamic>> mpCreate({
+    required int userId,
+    required List<int> friendIds,
+    required String theme,
+    String? petKey,
+  }) async {
+    final res = await _dio.post('$baseUrl/mp/games', data: {
+      'user_id': userId, 'friend_ids': friendIds, 'theme': theme, 'pet_key': petKey,
+    });
+    return _asMap(res.data);
+  }
+
+  Future<List<Map<String, dynamic>>> mpList({required int userId}) async {
+    final res = await _dio.get('$baseUrl/mp/games', queryParameters: {'user_id': userId});
+    return _asListOfMaps(res.data);
+  }
+
+  Future<Map<String, dynamic>> mpInbox({required int userId}) async {
+    final res = await _dio.get('$baseUrl/mp/inbox', queryParameters: {'user_id': userId});
+    return _asMap(res.data);
+  }
+
+  Future<Map<String, dynamic>> mpGet({required int gameId, required int userId}) async {
+    final res = await _dio.get('$baseUrl/mp/games/$gameId', queryParameters: {'user_id': userId});
+    return _asMap(res.data);
+  }
+
+  Future<Map<String, dynamic>> mpRespond({
+    required int gameId, required int userId, required bool accept, String? petKey,
+  }) async {
+    final res = await _dio.post('$baseUrl/mp/games/$gameId/respond',
+        data: {'user_id': userId, 'accept': accept, 'pet_key': petKey});
+    return _asMap(res.data);
+  }
+
+  Future<Map<String, dynamic>> mpAction(int gameId, String action, Map<String, dynamic> body) async {
+    final res = await _dio.post('$baseUrl/mp/games/$gameId/$action', data: body);
+    return _asMap(res.data);
+  }
+
+  /// 後端回 4xx 時，把 detail 裡的中文說明拿出來給使用者看
+  static String errorMessage(Object e) {
+    if (e is DioException) {
+      final data = e.response?.data;
+      if (data is Map && data['detail'] != null) return data['detail'].toString();
+      if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.connectionError) {
+        return '無法連線到伺服器';
+      }
+    }
+    return '操作失敗，請稍後再試';
+  }
+
   // ★ 新增：好友分身對戰
   Future<void> reportFriendMatch({
     int userId = 1,

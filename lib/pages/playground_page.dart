@@ -12,6 +12,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // ★ 新增：讀取使用者實際選的寵物 key，修復大富翁沒圖片的問題
 
 import 'add_friend_page.dart';
+import 'multiplayer_lobby_page.dart'; // ★ 新增：好友對戰（輪流制）
 // import 'friend_page.dart'; // ★ 好友頁已搬到底部導覽列，這裡不再使用
 import 'pet_page.dart';
 import 'package:user_interface/services/game_api_service.dart';
@@ -256,10 +257,8 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   //   輪回玩家時根本看不出電腦剛剛做了什麼。
   final List<String> _logHistory = [];
 
-  // ★ 新增：好友分身。最多 3 位好友取代電腦上場（由電腦代為操作），不足的位置補電腦。
-  static const String _kOpponentPrefKey = 'monopoly_friend_opponents';
-  List<Map<String, dynamic>> _allFriends = [];
-  List<Map<String, dynamic>> _friendOpponents = [];
+  // （好友分身已拿掉：單人模式只跟電腦玩，這個清單固定是空的；跟好友玩改用「好友對戰」）
+  final List<Map<String, dynamic>> _friendOpponents = const [];
   bool _matchReported = false;
 
   List<int> _diceValues = [1, 1];
@@ -382,7 +381,8 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     _initShakeSensor();
 
     // ★ 修改：先問伺服器本月地圖，再決定要不要自動開局
-    Future.wait([_loadMonthlyMap(), _loadFriendOpponents()]).then((_) {
+    // ★ 修改：拿掉「好友分身」，單人模式只跟電腦玩；跟好友玩請用「好友對戰」
+    _loadMonthlyMap().then((_) {
       if (!mounted || _gameStarted) return;
       final invited = (widget.inviteFriendIds ?? const []).isNotEmpty;
       final MapTheme? autoMap = _allowMapChoice
@@ -390,56 +390,6 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
           : _monthlyTheme; // 不開放選圖時，一律直接進本月地圖
       if (autoMap != null) _startGame(autoMap);
     });
-  }
-
-  // ★ 新增：讀好友清單，決定哪幾位好友的分身上場
-  Future<void> _loadFriendOpponents() async {
-    try {
-      final api = GameApiService.instance;
-      final uid = await api.resolveCurrentUserId();
-      final friends = await api.fetchFriends(userId: uid).timeout(const Duration(seconds: 3));
-      final prefs = await SharedPreferences.getInstance();
-      final saved = prefs.getStringList(_kOpponentPrefKey);
-      int idOf(Map<String, dynamic> f) => int.tryParse((f['friend_id'] ?? f['id'])?.toString() ?? '') ?? 0;
-      final byId = {for (final f in friends) idOf(f): f};
-
-      final picked = <int>[];
-      void add(int id) {
-        if (picked.length < 3 && byId.containsKey(id) && !picked.contains(id)) picked.add(id);
-      }
-      for (final id in widget.inviteFriendIds ?? const <int>[]) {
-        add(id);
-      }
-      if (saved != null) {
-        for (final s in saved) {
-          add(int.tryParse(s) ?? 0);
-        }
-      } else {
-        // 第一次玩：自動讓前幾位好友上場，展示「好友出現在大富翁裡」
-        for (final f in friends) {
-          add(idOf(f));
-        }
-      }
-      if (!mounted) return;
-      setState(() {
-        _allFriends = friends;
-        _friendOpponents = [for (final id in picked) byId[id]!];
-        if (!_gameStarted) _initPlayers(); // 選圖畫面的對手區塊立刻顯示好友
-      });
-      if ((widget.inviteFriendIds ?? const []).isNotEmpty) await _saveOpponentChoice();
-    } catch (e) {
-      debugPrint('讀取好友分身失敗，改用電腦對手：$e');
-    }
-  }
-
-  Future<void> _saveOpponentChoice() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(
-        _kOpponentPrefKey,
-        [for (final f in _friendOpponents) (f['friend_id'] ?? f['id']).toString()],
-      );
-    } catch (_) {}
   }
 
   int _friendIdOf(Map<String, dynamic> f) =>
@@ -1974,132 +1924,6 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     }
   }
 
-  // ★ 新增：挑選上場的好友（最多 3 位）
-  Future<void> _pickOpponents() async {
-    if (_allFriends.isEmpty) {
-      await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddFriendPage()));
-      await _loadFriendOpponents();
-      return;
-    }
-    final selected = {for (final f in _friendOpponents) _friendIdOf(f)};
-    final result = await showModalBottomSheet<Set<int>>(
-      context: context,
-      backgroundColor: Colors.white,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
-      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
-        return SafeArea(
-          child: ConstrainedBox(
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const SizedBox(height: 14),
-              const Text('選擇上場的好友', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF5D4037))),
-              const SizedBox(height: 4),
-              Text('最多 3 位・好友會以分身上場，由電腦代為擲骰', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
-              const SizedBox(height: 8),
-              Flexible(
-                child: ListView(
-                  shrinkWrap: true,
-                  children: [
-                    for (final f in _allFriends)
-                      Builder(builder: (_) {
-                        final id = _friendIdOf(f);
-                        final on = selected.contains(id);
-                        final img = _kPetImageMap[(f['pet_key'] ?? '').toString()];
-                        return CheckboxListTile(
-                          value: on,
-                          onChanged: (v) => setSheet(() {
-                            if (v == true && selected.length < 3) {
-                              selected.add(id);
-                            } else if (v != true) {
-                              selected.remove(id);
-                            }
-                          }),
-                          secondary: CircleAvatar(
-                            backgroundColor: const Color(0xFFFFF0F5),
-                            backgroundImage: img != null ? AssetImage(img) : null,
-                            child: img == null ? Text((f['pet_emoji'] ?? '🐾').toString()) : null,
-                          ),
-                          title: Text(_friendName(f), style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: Text((f['pet_name'] ?? '').toString()),
-                        );
-                      }),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: () => Navigator.pop(ctx, selected),
-                    child: Text(selected.isEmpty ? '不找好友，跟電腦玩' : '確定（${selected.length} 位好友）'),
-                  ),
-                ),
-              ),
-            ]),
-          ),
-        );
-      }),
-    );
-    if (result == null || !mounted) return;
-    setState(() {
-      _friendOpponents = [for (final f in _allFriends) if (result.contains(_friendIdOf(f))) f];
-      _initPlayers();
-    });
-    await _saveOpponentChoice();
-  }
-
-  // ★ 新增：選圖畫面下方的「對手」區塊
-  Widget _buildOpponentPanel() {
-    final slots = <Widget>[];
-    for (var i = 0; i < 3; i++) {
-      final p = i + 1 < _players.length ? _players[i + 1] : null;
-      final img = p?.animationPath;
-      final emoji = p?.emoji ?? '🤖';
-      final isFriend = i < _friendOpponents.length;
-      slots.add(Expanded(
-        child: Column(children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              shape: BoxShape.circle,
-              border: Border.all(color: isFriend ? Colors.pink.shade200 : Colors.grey.shade300, width: 2),
-            ),
-            padding: const EdgeInsets.all(4),
-            child: img != null
-                ? Image.asset(img, fit: BoxFit.contain,
-                    errorBuilder: (_, __, ___) => Center(child: Text(emoji)))
-                : Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
-          ),
-          const SizedBox(height: 4),
-          Text(p?.name ?? '電腦', maxLines: 1, overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF5D4037))),
-          Text(isFriend ? '好友分身' : '電腦',
-              style: TextStyle(fontSize: 10, color: isFriend ? Colors.pink : Colors.grey)),
-        ]),
-      ));
-    }
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 24),
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.85),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        Row(children: slots),
-        TextButton.icon(
-          onPressed: _pickOpponents,
-          icon: Icon(_allFriends.isEmpty ? Icons.person_add_rounded : Icons.group_rounded, size: 18),
-          label: Text(_allFriends.isEmpty ? '加好友，讓好友一起上場' : '選擇上場的好友'),
-        ),
-      ]),
-    );
-  }
-
   // persist=false：只顯示在畫面上，不寫到後端（例如「輪到誰」「擲出幾點」這種很頻繁的訊息）
   void _addLog(String msg, {bool persist = true}) {
     if (!mounted) return;
@@ -2172,9 +1996,26 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: _gameStarted ? _buildGameBoard() : _buildSelectionScreen(),
+    // ★ 修改：Android 返回鍵 / 手勢返回也一樣：棋盤 → 選圖畫面 → 首頁
+    return PopScope(
+      canPop: !_gameStarted,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _gameStarted) _backToSelection();
+      },
+      child: Scaffold(
+        body: _gameStarted ? _buildGameBoard() : _buildSelectionScreen(),
+      ),
     );
+  }
+
+  // ★ 新增：從棋盤回到選圖畫面。進度已經存在後端，再選同一張地圖會接著玩。
+  void _backToSelection() {
+    if (_isRolling) return; // 正在走路時先不要切，避免動畫中途被打斷
+    _persistAllPlayers();
+    setState(() {
+      _gameStarted = false;
+      _gameOver = false;
+    });
   }
 
   Widget _buildGameBoard() {
@@ -2318,8 +2159,8 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
       child: Row(
         children: [
-          _roundIconButton(Icons.arrow_back_ios_new_rounded, accent,
-                  () => Navigator.of(context).maybePop()),
+          // ★ 修改：棋盤上按上一頁，先回到大富翁的選圖畫面（那裡有好友對戰入口），不直接離開大富翁
+          _roundIconButton(Icons.arrow_back_ios_new_rounded, accent, _backToSelection),
           const SizedBox(width: 8),
           Expanded(
             child: Container(
@@ -2863,8 +2704,21 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
                 const SizedBox(height: 24),
 
-                // ★ 新增：對手（好友分身 / 電腦）
-                _buildOpponentPanel(),
+                const SizedBox(height: 28),
+
+                // ★ 新增：真人好友對戰（輪流制）
+                FilledButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const MultiplayerLobbyPage()),
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Colors.pink,
+                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                  ),
+                  icon: const Icon(Icons.groups_rounded),
+                  label: const Text('好友對戰（真人輪流擲骰）'),
+                ),
               ],
             ),
               ),

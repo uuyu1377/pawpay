@@ -17,6 +17,7 @@ import 'package:user_interface/services/recurring_income_review_service.dart';
 
 import 'pages/home_page.dart';
 import 'pages/invoice_lottery_page.dart'; // ★ 新增：發票對獎
+import 'pages/multiplayer_lobby_page.dart'; // ★ 新增：好友對戰
 import 'pages/playground_page.dart';
 import 'pages/setting_page.dart';
 import 'pages/friend_page.dart'; // ★ 好友頁搬到底部導覽列(原本在大富翁頁裡)
@@ -337,7 +338,9 @@ class _MainAppShellState extends State<MainAppShell> {
         _checkTravelCurrencyReturnReminder(); // ★ 合併自朋友版(C)：旅行結束提醒切回預設幣別
         _checkMonthStartBudgetAdjustCard(); // ★ 任務2：月初動態調整小卡（當月第一次開、且收入差很多才跳）
         // ★ 新增：發票對獎 → 好友分身戰績，依序檢查，避免兩個對話框同時跳出來疊在一起
-        _checkInvoiceLottery().whenComplete(_checkFriendMatchInbox);
+        // ★ 修改：拿掉好友分身後，不再提示分身戰績；只保留好友對戰提醒
+        _checkInvoiceLottery()
+            .whenComplete(_checkMultiplayerInbox); // ★ 新增：好友對戰輪到你 / 有人邀請你
       });
     }).whenComplete(() {
       // ★★★ 修正：資料載入結束後（不論成功或失敗）把首頁 loading 關掉 ★★★
@@ -926,6 +929,42 @@ class _MainAppShellState extends State<MainAppShell> {
       CurrencyService.symbolForCode(_pendingCurrencyCode ?? 'TWD');
 
   // ★★★★★ 以下為合併自朋友版(B 遊戲資金)：每日簽到、發票號碼解析、記帳發獎勵 ★★★★★
+  // ★ 新增：好友對戰（輪流制）——開 App 時提醒「輪到你了」或「有人邀請你」
+  Future<void> _checkMultiplayerInbox() async {
+    try {
+      final api = GameApiService.instance;
+      final uid = await api.resolveCurrentUserId();
+      final inbox = await api.mpInbox(userId: uid);
+      final turns = (inbox['my_turn_count'] as num?)?.toInt() ?? 0;
+      final invites = ((inbox['invites'] as List?) ?? const []).whereType<Map>().toList();
+      if ((turns == 0 && invites.isEmpty) || !mounted) return;
+      final lines = <String>[
+        if (invites.isNotEmpty)
+          invites.length == 1
+              ? '📨 ${invites.first['host_name']} 邀請你玩大富翁對戰'
+              : '📨 有 ${invites.length} 個對戰邀請',
+        if (turns > 0) '🎲 有 $turns 場對戰輪到你擲骰子了',
+      ];
+      final go = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('👥 好友對戰'),
+          content: Text(lines.join('\n')),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('等等')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('去看看')),
+          ],
+        ),
+      );
+      if (go == true && mounted) {
+        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MultiplayerLobbyPage()));
+      }
+    } catch (e) {
+      debugPrint('讀取好友對戰失敗：$e');
+    }
+  }
+
   // ★ 新增：有好友在大富翁裡跟你的分身對戰過，開 App 時告訴你結果
   Future<void> _checkFriendMatchInbox() async {
     try {

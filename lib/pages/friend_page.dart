@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:user_interface/pages/add_friend_page.dart';
-import 'package:user_interface/pages/playground_page.dart';
+import 'package:user_interface/pages/multiplayer_lobby_page.dart';
 import 'package:user_interface/services/game_api_service.dart';
 
 class FriendPage extends StatefulWidget {
@@ -104,13 +104,13 @@ class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMi
     }
   }
 
-  // ★ 新增：讓這位好友的分身上場，直接開一局大富翁
-  void _playWithFriend(Map<String, dynamic> f) {
+  // ★ 新增：邀請這位好友真人對戰（輪流制）
+  void _inviteToMatch(Map<String, dynamic> f) {
     final friendId = int.tryParse((f['friend_id'] ?? f['id'])?.toString() ?? '') ?? 0;
     if (friendId <= 0) return;
     Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => PlaygroundPage(inviteFriendIds: [friendId])),
+      MaterialPageRoute(builder: (_) => MultiplayerLobbyPage(preselectFriendId: friendId)),
     );
   }
 
@@ -431,21 +431,21 @@ class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMi
         ])),
         // 代幣
         _coinBadge(money),
-        // ★ 新增：一鍵找他玩大富翁
+        // ★ 修改：一鍵邀請他玩大富翁對戰（真人輪流擲骰）
         IconButton(
-          tooltip: '找他玩大富翁',
+          tooltip: '邀請大富翁對戰',
           icon: const Icon(Icons.casino_rounded, color: Colors.pink),
-          onPressed: () => _playWithFriend(f),
+          onPressed: () => _inviteToMatch(f),
         ),
         // ★ 新增：更多選項（刪除好友）
         PopupMenuButton<String>(
           icon: Icon(Icons.more_vert_rounded, color: Colors.grey.shade400),
           onSelected: (v) {
-            if (v == 'play') _playWithFriend(f);
+            if (v == 'versus') _inviteToMatch(f);
             if (v == 'remove') _confirmRemoveFriend(f);
           },
           itemBuilder: (_) => const [
-            PopupMenuItem(value: 'play', child: Text('🎲 找他玩大富翁')),
+            PopupMenuItem(value: 'versus', child: Text('👥 邀請大富翁對戰')),
             PopupMenuItem(value: 'remove', child: Text('刪除好友', style: TextStyle(color: Colors.red))),
           ],
         ),
