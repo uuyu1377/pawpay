@@ -27,6 +27,7 @@ class _AddFriendPageState extends State<AddFriendPage>
   bool _scanning = false;
   bool _scanProcessing = false;
   MobileScannerController? _scannerController;
+  DateTime? _lastInvalidQrSnack; // ★ 新增：避免相機每一幀都跳「這不是好友 QR Code」
 
   @override
   void initState() {
@@ -82,26 +83,71 @@ class _AddFriendPageState extends State<AddFriendPage>
   Future<void> _addFriendByUser(Map<String, dynamic> user) async {
     final id = int.tryParse(user['id']?.toString() ?? '') ?? 0;
     if (id <= 0) return;
-    await _addFriendById(id, label: (user['nickname'] ?? user['display_name'] ?? 'ID $id').toString());
-    await _loadRecommended();
+    final status = await _addFriendById(id, label: (user['nickname'] ?? user['display_name'] ?? 'ID $id').toString());
+    if (status == null || !mounted) return;
+    // ★ 新增：直接更新這個人的按鈕狀態，不用等重新載入
+    setState(() {
+      user['relation'] = (status == 'accepted' || status == 'already_friends') ? 'friends' : 'pending_sent';
+    });
+    // 搜尋中就留在搜尋結果；沒在搜尋才重新抓推薦（推薦清單會排除已經有關係的人）
+    if (_searchController.text.trim().isEmpty) await _loadRecommended();
   }
 
-  Future<void> _addFriendById(int id, {String? label}) async {
+  /// 回傳後端狀態（sent / already_sent / already_friends / accepted），失敗回傳 null
+  Future<String?> _addFriendById(int id, {String? label}) async {
     try {
       // ★ 修正：同樣補上真正登入的 user_id，避免加到共用帳號的好友清單裡
       final realUserId = await GameApiService.instance.resolveCurrentUserId();
-      await GameApiService.instance.addFriend(userId: realUserId, friendId: id);
-      if (!mounted) return;
-      _snack('已送出好友邀請${label != null ? '給 $label' : ''}！');
+      final status = await GameApiService.instance.addFriend(userId: realUserId, friendId: id);
+      if (!mounted) return status;
+      final who = label != null ? ' $label' : '';
+      switch (status) {
+        case 'accepted':
+          _snack('對方也邀請過你，你們已經成為好友了！');
+          break;
+        case 'already_friends':
+          _snack('你和$who 已經是好友了');
+          break;
+        case 'already_sent':
+          _snack('之前已經送過邀請給$who，等對方回應吧');
+          break;
+        default:
+          _snack('已送出好友邀請${label != null ? '給 $label' : ''}！');
+      }
+      return status;
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted) return null;
       _snack('新增好友失敗：$e');
+      return null;
     }
   }
 
+  // ★ 新增：在搜尋結果直接接受對方的邀請
+  Future<void> _acceptFromList(Map<String, dynamic> user) async {
+    final id = int.tryParse(user['id']?.toString() ?? '') ?? 0;
+    if (id <= 0) return;
+    try {
+      final realUserId = await GameApiService.instance.resolveCurrentUserId();
+      await GameApiService.instance.respondFriendRequest(userId: realUserId, fromUserId: id, action: 'accept');
+      if (!mounted) return;
+      setState(() => user['relation'] = 'friends');
+      _snack('已成為好友！');
+    } catch (e) {
+      if (!mounted) return;
+      _snack('操作失敗：$e');
+    }
+  }
+
+  // ★ 修正：原本也比對 f['id']，但那是 friends 表的紀錄 id，不是使用者 id，會誤判
   bool _isFriend(int id) =>
-      _friends.any((f) => int.tryParse(f['friend_id']?.toString() ?? '') == id ||
-          int.tryParse(f['id']?.toString() ?? '') == id);
+      _friends.any((f) => int.tryParse(f['friend_id']?.toString() ?? '') == id);
+
+  /// 後端有回 relation 就用它，沒有（舊版後端）就退回用好友清單判斷
+  String _relationOf(Map<String, dynamic> user, int id) {
+    final r = user['relation']?.toString();
+    if (r != null && r.isNotEmpty) return r;
+    return _isFriend(id) ? 'friends' : 'none';
+  }
 
   void _snack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
@@ -128,7 +174,12 @@ class _AddFriendPageState extends State<AddFriendPage>
 
     const prefix = 'petapp_friend:';
     if (!raw.startsWith(prefix)) {
-      _snack('這不是好友 QR Code');
+      // ★ 修正：同一個錯誤 3 秒內只提示一次
+      final now = DateTime.now();
+      if (_lastInvalidQrSnack == null || now.difference(_lastInvalidQrSnack!) > const Duration(seconds: 3)) {
+        _lastInvalidQrSnack = now;
+        _snack('這不是好友 QR Code');
+      }
       return;
     }
     final idStr = raw.substring(prefix.length);
@@ -252,7 +303,7 @@ class _AddFriendPageState extends State<AddFriendPage>
           itemBuilder: (_, i) {
             final user = _users[i];
             final id = int.tryParse(user['id']?.toString() ?? '') ?? 0;
-            final added = _isFriend(id);
+            final relation = _relationOf(user, id);
             final name = (user['nickname'] ?? user['display_name'] ?? '玩家 $id').toString();
             final color = Colors.primaries[name.hashCode.abs() % Colors.primaries.length];
             return Container(
@@ -265,25 +316,52 @@ class _AddFriendPageState extends State<AddFriendPage>
                       style: TextStyle(color: color, fontWeight: FontWeight.bold)),
                 ),
                 title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.brown)),
-                subtitle: Text('ID: $id${user['email'] != null ? ' • ${user['email']}' : ''}',
-                    style: const TextStyle(fontSize: 12)),
-                trailing: ElevatedButton(
-                  onPressed: added ? null : () => _addFriendByUser(user),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: added ? Colors.grey[200] : Colors.pink,
-                    foregroundColor: added ? Colors.grey : Colors.white,
-                    shape: const StadiumBorder(),
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                  ),
-                  child: Text(added ? '已加入' : '加入'),
-                ),
+                // ★ 修正：不再顯示別人的 email
+                subtitle: Text('ID: $id', style: const TextStyle(fontSize: 12)),
+                trailing: _relationButton(user, relation),
               ),
             );
           },
         ),
       ),
     ]);
+  }
+
+  // ★ 新增：依關係顯示不同按鈕
+  Widget _relationButton(Map<String, dynamic> user, String relation) {
+    final String label;
+    final VoidCallback? onPressed;
+    switch (relation) {
+      case 'friends':
+        label = '已是好友';
+        onPressed = null;
+        break;
+      case 'pending_sent':
+        label = '已送出';
+        onPressed = null;
+        break;
+      case 'pending_received':
+        label = '接受';
+        onPressed = () => _acceptFromList(user);
+        break;
+      default:
+        label = '加入';
+        onPressed = () => _addFriendByUser(user);
+    }
+    final enabled = onPressed != null;
+    return ElevatedButton(
+      onPressed: onPressed,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: enabled ? Colors.pink : Colors.grey[200],
+        foregroundColor: enabled ? Colors.white : Colors.grey,
+        disabledBackgroundColor: Colors.grey[200],
+        disabledForegroundColor: Colors.grey,
+        shape: const StadiumBorder(),
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+      ),
+      child: Text(label),
+    );
   }
 
   // ── Tab 1: 掃描 ─────────────────────────────────────────────────────────────

@@ -111,14 +111,33 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     return null;
   }
 
-  // 扭蛋：優先由後端決定結果，離線時使用本地機率池
-  // 扭蛋：線上以「扭蛋幣」原子扣款（合併自朋友版經濟），斷線則退回你原本的本地機率池、一樣扣扭蛋幣。
-  void _startGacha() async {
-    const cost = 10;
+  // ★ 新增：單抽 / 十抽送一抽 的價格
+  // ★ 調整：任務獎勵一個月約 10～14 幣（記帳 30 筆 = 1 幣），
+  //   所以單抽 1 幣、十抽送一抽 10 幣，認真記帳一個月約可十抽送一抽一次。
+  static const int _singleCost = 1;
+  static const int _multiDraws = 11;  // 十抽送一抽
+  static const int _multiCost = 10;   // 只算 10 抽的錢
+
+  Map<String, dynamic>? _resultFromApiPet(dynamic pet, {bool duplicate = false}) {
+    if (pet is! Map) return null;
+    final type = (pet['icon_key'] ?? pet['species_name'] ?? 'dog').toString();
+    return {
+      'type': type,
+      'name': (pet['name'] ?? pet['species_name'] ?? '新寵物').toString(),
+      'color': _getPetColor(type),
+      'duplicate': duplicate, // ★ 任務3：帶入後端回傳的「是否為已擁有的同物種」
+    };
+  }
+
+  // 扭蛋：線上以「扭蛋幣」原子扣款（合併自朋友版經濟），斷線則退回本地機率池、一樣扣扭蛋幣。
+  // ★ 修改：加上 draws 參數，1 = 單抽，11 = 十抽送一抽
+  Future<void> _startGacha({int draws = 1}) async {
+    final isMulti = draws > 1;
+    final cost = isMulti ? _multiCost : _singleCost;
     if (_isRolling) return;
     if (_userCoins < cost) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('扭蛋幣不足！完成記帳任務可以獲得扭蛋幣。')),
+        SnackBar(content: Text('扭蛋幣不足！${isMulti ? '十抽送一抽需要 $cost 扭蛋幣，' : ''}完成記帳任務可以獲得扭蛋幣。')),
       );
       return;
     }
@@ -134,13 +153,14 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     if (!mounted) return;
     _dropController.reset();
 
-    Map<String, dynamic>? result;
+    final List<Map<String, dynamic>?> results = [];
+    var offline = false;
     try {
       // 先由 5000 API 原子扣除扭蛋幣，避免再扣大富翁 money。
       spendResult = await GameApiService.instance.spendGameReward(
         rewardType: 'gacha_coins',
         amount: cost,
-        source: 'gacha_draw',
+        source: isMulti ? 'gacha_draw_multi' : 'gacha_draw',
       );
       if (mounted) {
         setState(() {
@@ -149,41 +169,47 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
       }
 
       // cost=0：8000 API 只負責抽獎/新增寵物，不再扣玩家 money。
-      // ★ 修正：同樣的 userId=1 預設值 bug，補上真正登入的 user_id
       final realUserId = await GameApiService.instance.resolveCurrentUserId();
-      final apiResult = await GameApiService.instance.gachaDraw(userId: realUserId, cost: 0);
-      final pet = apiResult['pet'];
-      if (pet is Map) {
-        final type = (pet['species_name'] ?? pet['icon_key'] ?? 'dog').toString();
-        result = {
-          'type': type,
-          'name': (pet['name'] ?? pet['species_name'] ?? '新寵物').toString(),
-          'color': _getPetColor(type),
-          'duplicate': apiResult['duplicate'] == true, // ★ 任務3：帶入後端回傳的「是否為已擁有的同物種」
-        };
+      if (isMulti) {
+        final apiResult = await GameApiService.instance.gachaDrawMulti(userId: realUserId, draws: draws, cost: 0);
+        final list = apiResult['results'];
+        if (list is! List) throw Exception('後端回傳格式錯誤');
+        for (final item in list) {
+          if (item is Map) {
+            results.add(_resultFromApiPet(item['pet'], duplicate: item['duplicate'] == true));
+          } else {
+            results.add(null);
+          }
+        }
+      } else {
+        final apiResult = await GameApiService.instance.gachaDraw(userId: realUserId, cost: 0);
+        results.add(_resultFromApiPet(apiResult['pet'], duplicate: apiResult['duplicate'] == true));
       }
     } catch (e) {
-      // ★ 修正：原本這裡把任何失敗（包括 gachaDraw 真正寫入資料庫失敗）都靜默吞掉，
-      //   直接用本地假抽獎結果騙使用者「抽到了」，但其實根本沒存進 pets 表，
-      //   導致「扭蛋角色不會出現在寵物列表」。
-      //   先把錯誤印出來方便除錯，並且把這次結果標記成 offline，讓彈窗提醒使用者這是離線模擬、沒有真的存檔。
+      // 失敗時不要假裝真的抽到：用本地池給「離線模擬」結果，並在彈窗清楚標示沒有存檔。
       debugPrint('❌ 扭蛋抽獎失敗，改用離線模擬結果：$e');
 
-      // 斷線備援（保留原本的本地機率池）：一樣扣「扭蛋幣」。
       //   • spendResult == null：尚未成功扣款，改在本地扣掉扭蛋幣。
       //   • spendResult != null：已在伺服器扣過款，不重複扣，直接用本地池給結果。
       if (mounted && spendResult == null) {
         setState(() => _userCoins = (_userCoins - cost).clamp(0, 999999));
       }
-      result = _runLocalGacha();
-      if (result != null) {
-        result['offline'] = true; // ★ 標記：這是離線模擬，沒有真的寫進寵物清單
+      results.clear();
+      offline = true;
+      for (var i = 0; i < draws; i++) {
+        final r = _runLocalGacha();
+        if (r != null) r['offline'] = true; // ★ 標記：這是離線模擬，沒有真的寫進寵物清單
+        results.add(r);
       }
     }
 
     if (!mounted) return;
     setState(() => _isRolling = false);
-    _showResultDialog(result);
+    if (isMulti) {
+      _showMultiResultDialog(results, offline: offline);
+    } else {
+      _showResultDialog(results.isEmpty ? null : results.first);
+    }
   }
 
   @override
@@ -206,14 +232,17 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
                 TextButton.icon(onPressed: _openMissions,
                     icon: const Icon(Icons.task_alt_rounded, size: 19),
                     label: const Text('查看任務與領取扭蛋幣', textAlign: TextAlign.center)),
+                // ★ 修改：寵物不課金，自選券改用扭蛋幣兌換
                 OutlinedButton.icon(onPressed: _openPetChoiceShop,
                     icon: const Icon(Icons.card_giftcard_rounded, size: 19),
-                    label: const Text('寵物自選商店（NT\$200／張）', textAlign: TextAlign.center)),
+                    label: const Text('寵物自選券（用扭蛋幣兌換）', textAlign: TextAlign.center)),
                 const SizedBox(height: 6),
                 SizedBox(width: machineWidth, child: PawGachaMachine3D(
                     roll: _rollController, drop: _dropController)),
                 const SizedBox(height: 12),
                 _buildActionBtn(),
+                const SizedBox(height: 10),
+                _buildMultiActionBtn(),
               ]))),
         );
       })),
@@ -239,7 +268,7 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
     final palette = AppPalette.of(context);
     return Semantics(button: true, enabled: !_isRolling,
       child: Material(color: Colors.transparent, child: InkWell(
-        onTap: _startGacha,
+        onTap: () => _startGacha(draws: 1),
         borderRadius: BorderRadius.circular(28),
         child: Ink(
           width: double.infinity,
@@ -249,12 +278,143 @@ class _GachaPageState extends State<GachaPage> with TickerProviderStateMixin {
             borderRadius: BorderRadius.circular(28),
             boxShadow: _isRolling ? [] : palette.cardShadow,
           ),
-          child: Text(_isRolling ? "扭動中..." : "消耗 10 扭蛋幣 扭一次",
+          child: Text(_isRolling ? "扭動中..." : "消耗 $_singleCost 扭蛋幣 扭一次",
               textAlign: TextAlign.center,
               style: TextStyle(color: !_isRolling && ThemeData.estimateBrightnessForColor(palette.accent) == Brightness.dark
                   ? Colors.white : palette.ink, fontSize: 17, fontWeight: FontWeight.bold)),
         ),
       )),
+    );
+  }
+
+  // ★ 新增：十抽送一抽按鈕
+  Widget _buildMultiActionBtn() {
+    final palette = AppPalette.of(context);
+    return Semantics(button: true, enabled: !_isRolling,
+      child: Material(color: Colors.transparent, child: InkWell(
+        onTap: () => _startGacha(draws: _multiDraws),
+        borderRadius: BorderRadius.circular(28),
+        child: Ink(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          decoration: BoxDecoration(
+            color: palette.card,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: _isRolling ? palette.line : palette.accent, width: 2),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text(_isRolling ? "扭動中..." : "十抽送一抽",
+                textAlign: TextAlign.center,
+                style: TextStyle(color: palette.ink, fontSize: 17, fontWeight: FontWeight.bold)),
+            if (!_isRolling) ...[
+              const SizedBox(height: 2),
+              Text("消耗 $_multiCost 扭蛋幣，共抽 $_multiDraws 次",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: palette.ink2, fontSize: 12)),
+            ],
+          ]),
+        ),
+      )),
+    );
+  }
+
+  // ★ 新增：十抽送一抽的結果，用格子一次列出 11 個
+  void _showMultiResultDialog(List<Map<String, dynamic>?> results, {bool offline = false}) {
+    final got = results.whereType<Map<String, dynamic>>().toList();
+    final newCount = got.where((r) => r['duplicate'] != true).length;
+    final isOffline = offline;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      barrierColor: AppPalette.of(context).ink.withValues(alpha: .38),
+      builder: (ctx) {
+        final p = AppPalette.of(ctx);
+        return Dialog(
+          backgroundColor: Colors.transparent, elevation: 0,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 24),
+          child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 400),
+            child: SingleChildScrollView(
+              child: PawToyCard(padding: const EdgeInsets.fromLTRB(18, 22, 18, 22),
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  Text('十抽送一抽結果', style: TextStyle(color: p.ink, fontSize: 20, fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 6),
+                  Text(
+                    got.isEmpty ? '這次全部銘謝惠顧，下次好運！' : '獲得 ${got.length} 隻寵物，其中 $newCount 隻是新夥伴',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: p.ink2, fontSize: 13),
+                  ),
+                  const SizedBox(height: 14),
+                  GridView.count(
+                    crossAxisCount: 4,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                    childAspectRatio: 0.78,
+                    children: [for (final r in results) _multiResultTile(r)],
+                  ),
+                  if (isOffline) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.withValues(alpha: .12),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Text(
+                        '⚠️ 目前連線不穩，這是離線模擬結果，不會出現在你的寵物清單裡，請稍後恢復連線再抽一次',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.orange[800], fontSize: 12, height: 1.5, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 18),
+                  PawToyButton(label: '收下', onPressed: () => Navigator.pop(ctx), icon: Icons.favorite_rounded),
+                ]),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _multiResultTile(Map<String, dynamic>? r) {
+    final p = AppPalette.of(context);
+    if (r == null) {
+      return Container(
+        decoration: BoxDecoration(color: p.line.withValues(alpha: .35), borderRadius: BorderRadius.circular(14)),
+        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+          Icon(Icons.spa_rounded, color: p.ink2, size: 26),
+          const SizedBox(height: 4),
+          Text('銘謝惠顧', style: TextStyle(fontSize: 10, color: p.ink2)),
+        ]),
+      );
+    }
+    final type = r['type']?.toString() ?? '';
+    final imagePath = CurrentPetManager.petImageMap[type];
+    final isNew = r['duplicate'] != true;
+    final color = (r['color'] as Color?) ?? p.accent;
+    return Container(
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .14),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: isNew ? color : Colors.transparent, width: 2),
+      ),
+      padding: const EdgeInsets.all(4),
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        Expanded(
+          child: imagePath != null
+              ? Image.asset(imagePath, fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => Icon(_getPetIcon(type), color: color))
+              : Icon(_getPetIcon(type), color: color),
+        ),
+        Text(r['name']?.toString() ?? '', maxLines: 1, overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: p.ink)),
+        Text(isNew ? 'NEW' : '已擁有',
+            style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800,
+                color: isNew ? Colors.pink : p.ink2)),
+      ]),
     );
   }
 

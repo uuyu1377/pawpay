@@ -121,8 +121,9 @@ const Map<String, PetSkillData> petSkillData = {
   // -------------------------------------------------------
   // 柴犬
   // -------------------------------------------------------
-  'cute_dog': PetSkillData(
-    key: 'cute_dog',
+  // ★ 修正：key 改成跟寵物頁 / 大富翁一致（原本是 'cute_dog'，導致這隻寵物找不到技能）
+  'shiba_dog': PetSkillData(
+    key: 'shiba_dog',
     displayName: '柴犬',
     personality: '衝動、直率、容易激動',
     passiveName: '熱血衝刺',
@@ -155,9 +156,10 @@ const Map<String, PetSkillData> petSkillData = {
   // -------------------------------------------------------
   // 佛系狗
   // -------------------------------------------------------
-  'norm_dog': PetSkillData(
-    key: 'norm_dog',
-    displayName: '佛系狗',
+  // ★ 修正：key 改成跟寵物頁 / 大富翁一致（原本是 'norm_dog'，導致這隻寵物找不到技能）
+  'calm_dog': PetSkillData(
+    key: 'calm_dog',
+    displayName: '諾姆犬',
     personality: '淡定、隨緣、不急不躁',
     passiveName: '看開一點',
     passiveDescription:
@@ -172,16 +174,17 @@ const Map<String, PetSkillData> petSkillData = {
   // -------------------------------------------------------
   // 黏人狗
   // -------------------------------------------------------
-  'wagging_dog': PetSkillData(
-    key: 'wagging_dog',
-    displayName: '黏人狗',
+  // ★ 修正：key 改成跟寵物頁 / 大富翁一致（原本是 'wagging_dog'，導致這隻寵物找不到技能）
+  'clingy_dog': PetSkillData(
+    key: 'clingy_dog',
+    displayName: '甩尾狗',
     personality: '超熱情、黏人、喜歡一起行動',
     passiveName: '一起玩！',
     passiveDescription:
     '每次經過起點時，額外獲得 \$500。',
     activeName: '跟我來！',
     activeDescription:
-    '每局一次，讓一位電腦玩家額外前進 2 格。',
+    '每局一次，讓一位對手額外前進 2 格。',
     skillIcon: Icons.group_rounded,
   ),
 
@@ -189,8 +192,9 @@ const Map<String, PetSkillData> petSkillData = {
   // -------------------------------------------------------
   // 愛心貓
   // -------------------------------------------------------
-  'lovely_cat': PetSkillData(
-    key: 'lovely_cat',
+  // ★ 修正：key 改成跟寵物頁 / 大富翁一致（原本是 'lovely_cat'，導致這隻寵物找不到技能）
+  'love_cat': PetSkillData(
+    key: 'love_cat',
     displayName: '愛心貓',
     personality: '溫柔、貼心、喜歡照顧人',
     passiveName: '暖心守護',
@@ -206,8 +210,9 @@ const Map<String, PetSkillData> petSkillData = {
   // -------------------------------------------------------
   // 工作貓
   // -------------------------------------------------------
-  'blue_cat': PetSkillData(
-    key: 'blue_cat',
+  // ★ 修正：key 改成跟寵物頁 / 大富翁一致（原本是 'blue_cat'，導致這隻寵物找不到技能）
+  'work_cat': PetSkillData(
+    key: 'work_cat',
     displayName: '工作貓',
     personality: '認真、效率、做事俐落',
     passiveName: '效率管理',
@@ -240,8 +245,9 @@ const Map<String, PetSkillData> petSkillData = {
   // -------------------------------------------------------
   // 等待貓
   // -------------------------------------------------------
-  'loader_cat': PetSkillData(
-    key: 'loader_cat',
+  // ★ 修正：key 改成跟寵物頁 / 大富翁一致（原本是 'loader_cat'，導致這隻寵物找不到技能）
+  'waiting_cat': PetSkillData(
+    key: 'waiting_cat',
     displayName: '等待貓',
     personality: '有耐心、慢條斯理、喜歡等待',
     passiveName: '耐心利息',
@@ -310,8 +316,18 @@ const Map<String, PetSkillData> petSkillData = {
 // Helper
 // =========================================================
 
+// 舊版存下來的 key 也能找到技能
+const Map<String, String> _legacyPetSkillKeys = {
+  'cute_dog': 'shiba_dog',
+  'norm_dog': 'calm_dog',
+  'wagging_dog': 'clingy_dog',
+  'lovely_cat': 'love_cat',
+  'blue_cat': 'work_cat',
+  'loader_cat': 'waiting_cat',
+};
+
 PetSkillData? getPetSkill(String? petKey) {
   if (petKey == null) return null;
 
-  return petSkillData[petKey];
+  return petSkillData[petKey] ?? petSkillData[_legacyPetSkillKeys[petKey]];
 }

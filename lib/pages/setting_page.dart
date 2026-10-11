@@ -26,6 +26,7 @@ import 'settings_faq_page.dart';
 import 'recurring_transactions_page.dart';
 import 'category_memory_page.dart'; // ★ AI 自適應：AI 學到的分類規則面板
 import 'fund_allocation_page.dart'; // ★ 資金分配頁
+import 'invoice_lottery_page.dart'; // ★ 新增：發票對獎
 import '../services/firebase_auth_service.dart'; // ★ 刪除所有資料後一併登出 Google/Firebase
 import '../services/line_auth_service.dart'; // ★ 刪除所有資料後一併登出 LINE
 
@@ -1861,6 +1862,18 @@ class SettingPageState extends State<SettingPage> {
                   ),
                   iconBg: const Color(0xFFF1ECFF),
                   iconColor: const Color(0xFF6D4CC7),
+                ),
+                _buildDivider(),
+                // ★ 新增：發票對獎
+                _buildTile(
+                  icon: Icons.receipt_long_rounded,
+                  title: '發票對獎',
+                  subtitle: '自動幫你對掃描過的發票',
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const InvoiceLotteryPage()),
+                  ),
+                  iconBg: const Color(0xFFFFF4D6),
+                  iconColor: const Color(0xFFE6A100),
                 ),
                 _buildDivider(),
                 _buildTile(

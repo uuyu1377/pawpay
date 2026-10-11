@@ -75,6 +75,19 @@ const String _kComputerImage3 =
 enum BlockType { land, start, jail, chance, tax, goJail }
 enum MapTheme { taiwan, magicIsland }
 
+// ★ 新增：伺服器統一地圖（每月輪替）。後端 /game/map/current 是正式來源；
+//   連不到後端時用同一套規則在本機算，確保離線也跟大家同一張圖。
+const List<MapTheme> kMapRotation = [MapTheme.taiwan, MapTheme.magicIsland];
+
+MapTheme mapThemeFromKey(String? key) =>
+    key == 'magicIsland' ? MapTheme.magicIsland : MapTheme.taiwan;
+
+MapTheme localMonthlyMapTheme([DateTime? now]) {
+  final t = (now ?? DateTime.now().toUtc()).toUtc().add(const Duration(hours: 8)); // 台灣時間
+  final months = (t.year - 2026) * 12 + (t.month - 1);
+  return kMapRotation[months % kMapRotation.length];
+}
+
 class GameNode {
   final String name;
   final Offset position;
@@ -208,6 +221,8 @@ class PlaygroundPage extends StatefulWidget {
   final String? petEmoji;
   final Color? petColor;
   final MapTheme? initialMapTheme;
+  // ★ 新增：從好友頁按「找他玩大富翁」進來時，帶入要上場的好友 id
+  final List<int>? inviteFriendIds;
 
   const PlaygroundPage({
     super.key,
@@ -216,6 +231,7 @@ class PlaygroundPage extends StatefulWidget {
     this.petEmoji,
     this.petColor,
     this.initialMapTheme,
+    this.inviteFriendIds,
   });
 
   @override
@@ -229,7 +245,22 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   int _currentPlayerIdx = 0;
   late List<GameNode> _currentPath;
   MapTheme _currentTheme = MapTheme.taiwan;
+
+  // ★ 新增：本月地圖資訊（由伺服器決定）
+  MapTheme _monthlyTheme = localMonthlyMapTheme();
+  bool _allowMapChoice = true; // 上架時後端設 MAP_ALLOW_CHOICE=0，就只能玩本月地圖
+  String? _nextMapChangeAt;    // 例如 2026-11-01
+  bool _monthlyMapLoaded = false;
   String _gameLog = "";
+  // ★ 新增：事件紀錄歷史。原本只有一行 _gameLog，電腦連續行動時訊息一直被蓋掉，
+  //   輪回玩家時根本看不出電腦剛剛做了什麼。
+  final List<String> _logHistory = [];
+
+  // ★ 新增：好友分身。最多 3 位好友取代電腦上場（由電腦代為操作），不足的位置補電腦。
+  static const String _kOpponentPrefKey = 'monopoly_friend_opponents';
+  List<Map<String, dynamic>> _allFriends = [];
+  List<Map<String, dynamic>> _friendOpponents = [];
+  bool _matchReported = false;
 
   List<int> _diceValues = [1, 1];
   bool _isRolling = false;
@@ -350,16 +381,101 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
     _initShakeSensor();
 
-    final autoMap =
-        widget.initialMapTheme ?? SelectedPet.lastMapTheme;
+    // ★ 修改：先問伺服器本月地圖，再決定要不要自動開局
+    Future.wait([_loadMonthlyMap(), _loadFriendOpponents()]).then((_) {
+      if (!mounted || _gameStarted) return;
+      final invited = (widget.inviteFriendIds ?? const []).isNotEmpty;
+      final MapTheme? autoMap = _allowMapChoice
+          ? (widget.initialMapTheme ?? SelectedPet.lastMapTheme ?? (invited ? _monthlyTheme : null))
+          : _monthlyTheme; // 不開放選圖時，一律直接進本月地圖
+      if (autoMap != null) _startGame(autoMap);
+    });
+  }
 
-    if (autoMap != null) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          _startGame(autoMap);
+  // ★ 新增：讀好友清單，決定哪幾位好友的分身上場
+  Future<void> _loadFriendOpponents() async {
+    try {
+      final api = GameApiService.instance;
+      final uid = await api.resolveCurrentUserId();
+      final friends = await api.fetchFriends(userId: uid).timeout(const Duration(seconds: 3));
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getStringList(_kOpponentPrefKey);
+      int idOf(Map<String, dynamic> f) => int.tryParse((f['friend_id'] ?? f['id'])?.toString() ?? '') ?? 0;
+      final byId = {for (final f in friends) idOf(f): f};
+
+      final picked = <int>[];
+      void add(int id) {
+        if (picked.length < 3 && byId.containsKey(id) && !picked.contains(id)) picked.add(id);
+      }
+      for (final id in widget.inviteFriendIds ?? const <int>[]) {
+        add(id);
+      }
+      if (saved != null) {
+        for (final s in saved) {
+          add(int.tryParse(s) ?? 0);
         }
+      } else {
+        // 第一次玩：自動讓前幾位好友上場，展示「好友出現在大富翁裡」
+        for (final f in friends) {
+          add(idOf(f));
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _allFriends = friends;
+        _friendOpponents = [for (final id in picked) byId[id]!];
+        if (!_gameStarted) _initPlayers(); // 選圖畫面的對手區塊立刻顯示好友
+      });
+      if ((widget.inviteFriendIds ?? const []).isNotEmpty) await _saveOpponentChoice();
+    } catch (e) {
+      debugPrint('讀取好友分身失敗，改用電腦對手：$e');
+    }
+  }
+
+  Future<void> _saveOpponentChoice() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        _kOpponentPrefKey,
+        [for (final f in _friendOpponents) (f['friend_id'] ?? f['id']).toString()],
+      );
+    } catch (_) {}
+  }
+
+  int _friendIdOf(Map<String, dynamic> f) =>
+      int.tryParse((f['friend_id'] ?? f['id'])?.toString() ?? '') ?? 0;
+
+  String _friendName(Map<String, dynamic> f) =>
+      (f['nickname'] ?? f['display_name'] ?? '好友').toString();
+
+  Future<void> _loadMonthlyMap() async {
+    try {
+      final info = await GameApiService.instance
+          .fetchCurrentMap()
+          .timeout(const Duration(seconds: 3)); // 不要讓選圖畫面卡太久
+      if (!mounted) return;
+      setState(() {
+        _monthlyTheme = mapThemeFromKey(info['theme']?.toString());
+        _allowMapChoice = info['allow_choice'] != false;
+        _nextMapChangeAt = info['next_change_at']?.toString();
+        _monthlyMapLoaded = true;
+      });
+    } catch (_) {
+      // 連不到後端：用本機規則算本月地圖，維持可選圖（跟目前行為一樣）
+      if (!mounted) return;
+      setState(() {
+        _monthlyTheme = localMonthlyMapTheme();
+        _monthlyMapLoaded = true;
       });
     }
+  }
+
+  String _mapName(MapTheme t) => t == MapTheme.magicIsland ? '魔法天空島' : '台灣環島';
+
+  String _nextChangeLabel() {
+    final d = DateTime.tryParse(_nextMapChangeAt ?? '');
+    if (d == null) return '每月 1 號換新地圖';
+    return '${d.month}/${d.day} 換新地圖';
   }
 // =========================================================
 // 寵物技能
@@ -417,11 +533,12 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       setState(() {
         _players[0] = Player(
           id: old.id,
-          name: old.name,
+          // ★ 修正：從寵物頁換寵物回來時，名字和 emoji 也跟著換（原本只換圖片）
+          name: SelectedPet.name ?? old.name,
           color: old.color,
           icon: old.icon,
           animationPath: imagePath,
-          emoji: old.emoji,
+          emoji: SelectedPet.emoji ?? old.emoji,
           money: old.money,
           pathStep: old.pathStep,
           isBankrupt: old.isBankrupt,
@@ -519,7 +636,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     final petColor =
         widget.petColor ?? SelectedPet.color ?? const Color(0xFF2196F3);
 
-    _players = [
+    final players = [
       Player(
         id: 0,
         name: petName,
@@ -553,6 +670,22 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         emoji: '🦦',
       ),
     ];
+
+    // ★ 新增：好友分身取代電腦（位置 1～3），沒選到的位置維持原本的電腦
+    for (var i = 0; i < _friendOpponents.length && i < 3; i++) {
+      final f = _friendOpponents[i];
+      final slot = players[i + 1];
+      final petKey = (f['pet_key'] ?? '').toString();
+      players[i + 1] = Player(
+        id: slot.id,
+        name: _friendName(f),
+        color: slot.color,
+        icon: Icons.person_rounded,
+        animationPath: _kPetImageMap[petKey] ?? slot.animationPath,
+        emoji: (f['pet_emoji'] ?? slot.emoji)?.toString(),
+      );
+    }
+    _players = players;
 
     _currentPlayerIdx = 0;
   }
@@ -1013,6 +1146,8 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   }
 
   Future<void> _rollDice() async {
+    // ★ 修正：電腦回合是用 Future.delayed 排程的，離開大富翁頁後才觸發會 setState 報錯
+    if (!mounted) return;
     if (_isRolling || _gameOver || !_gameStarted) return;
 
     final p = _players[_currentPlayerIdx];
@@ -1181,6 +1316,22 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       _diceValues = [dice1, dice2];
     });
 
+    // ★ 新增：每次擲骰都寫進紀錄，電腦擲幾點、走幾格看得到
+    _addLog(
+      p.id == 0
+          ? '🎲 你擲出 $dice1 + $dice2，前進 $steps 格'
+          : '🎲 ${p.name} 擲出 $dice1 + $dice2，前進 $steps 格',
+      persist: false,
+    );
+    if (p.id != 0) {
+      // 讓使用者有時間看清楚點數再開始走
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted || _gameOver) {
+        setState(() => _isRolling = false);
+        return;
+      }
+    }
+
     await _movePlayer(
       p,
       steps,
@@ -1268,6 +1419,11 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     final block =
     _currentPath[p.pathStep];
 
+    // ★ 新增：電腦停在哪一格也寫出來
+    if (p.id != 0) {
+      _addLog('📍 ${p.name} 停在 ${block.name}', persist: false);
+    }
+
     switch (block.type) {
       case BlockType.land:
         _handleLandEvent(
@@ -1278,6 +1434,11 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
       case BlockType.chance:
         _handleChanceEvent(p);
+        break;
+
+      // ★ 新增：繳稅格原本踩到什麼事都沒發生，現在會依格子金額繳稅
+      case BlockType.tax:
+        _handleTaxEvent(p, block);
         break;
 
       case BlockType.goJail:
@@ -1353,6 +1514,9 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         _addLog(
           '${p.name} 佔領了 ${block.name}',
         );
+      } else {
+        // ★ 新增：電腦錢不夠買地時也說一聲，不然看起來像什麼都沒發生
+        _addLog('${p.name} 資金不足，沒有買下 ${block.name}', persist: false);
       }
 
       _endTurn();
@@ -1666,6 +1830,29 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
     _endTurn();
   }
+  void _handleTaxEvent(Player p, GameNode block) {
+    int tax = block.baseCost > 0 ? block.baseCost : 2000;
+
+    // 諾姆犬被動：第一次遭遇金錢損失減半（跟租金、機會事件共用同一次）
+    if (p.id == 0 &&
+        _currentPetKey == 'calm_dog' &&
+        !_usedPassiveSkills.contains('calm_loss')) {
+      tax = (tax * 0.5).round();
+      _usedPassiveSkills.add('calm_loss');
+      _addLog('😌 看開一點！第一次損失減少 50%');
+    }
+
+    setState(() {
+      p.money -= tax;
+    });
+    _persistPlayerState(p);
+    _addLog('🧾 ${p.name} 停在${block.name}，繳稅 \$${_fmt(tax)}');
+
+    if (p.id == 0) _checkLovelyCatGuard();
+
+    _endTurn();
+  }
+
   void _checkLovelyCatGuard() {
     if (_currentPetKey !=
         'love_cat') {
@@ -1708,6 +1895,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         // 若玩家 0（使用者）破產 → 遊戲直接結束
         if (p.id == 0) {
           setState(() { _gameOver = true; _gameLog = "你的寵物破產了！本月冒險結束"; });
+          _reportFriendMatch();
           return;
         }
         _addLog("${p.name} 已破產，退出遊戲！");
@@ -1718,6 +1906,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     final alive = _players.where((p) => !p.isBankrupt).toList();
     if (alive.length == 1) {
       setState(() { _gameOver = true; _gameLog = "${alive.first.name} 獲得最終勝利！本月冒險結束"; });
+      _reportFriendMatch();
       return;
     }
     // 蜜蜂主動：再行動一次
@@ -1738,12 +1927,188 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     while (_players[next].isBankrupt) {
       next = (next + 1) % _players.length;
     }
+    final wasNpcTurn = _currentPlayerIdx != 0;
     setState(() => _currentPlayerIdx = next);
-    if (_currentPlayerIdx != 0) Future.delayed(const Duration(seconds: 1), _rollDice);
+    if (_currentPlayerIdx != 0) {
+      // ★ 新增：宣告輪到哪個電腦，並把間隔從 1 秒拉長，讓使用者看得清楚
+      final isFriend = next - 1 < _friendOpponents.length;
+      _addLog(
+        '${_players[next].emoji ?? '🤖'} 輪到 ${_players[next].name}${isFriend ? '（好友分身）' : ''} 行動',
+        persist: false,
+      );
+      Future.delayed(const Duration(milliseconds: 1400), _rollDice);
+    } else if (wasNpcTurn) {
+      _addLog('👉 輪到你了！點「出發！」或搖一搖手機擲骰子', persist: false);
+    }
   }
 
-  void _addLog(String msg) {
-    setState(() => _gameLog = msg);
+  // ★ 新增：一局結束，把跟好友分身的戰績送到後端，好友下次開 App 會看到
+  Future<void> _reportFriendMatch() async {
+    if (_matchReported || _friendOpponents.isEmpty) return;
+    _matchReported = true;
+    final ranked = [..._players]..sort((a, b) {
+        if (a.isBankrupt != b.isBankrupt) return a.isBankrupt ? 1 : -1;
+        return b.money.compareTo(a.money);
+      });
+    int rankOf(Player p) => ranked.indexOf(p) + 1;
+    final me = _players[0];
+    try {
+      final uid = await GameApiService.instance.resolveCurrentUserId();
+      await GameApiService.instance.reportFriendMatch(
+        userId: uid,
+        theme: _themeKey,
+        myRank: rankOf(me),
+        myMoney: me.money,
+        opponents: [
+          for (var i = 0; i < _friendOpponents.length && i + 1 < _players.length; i++)
+            {
+              'friend_id': _friendIdOf(_friendOpponents[i]),
+              'rank': rankOf(_players[i + 1]),
+              'money': _players[i + 1].money,
+              'bankrupt': _players[i + 1].isBankrupt,
+            },
+        ],
+      );
+    } catch (e) {
+      debugPrint('回報好友分身戰績失敗：$e');
+    }
+  }
+
+  // ★ 新增：挑選上場的好友（最多 3 位）
+  Future<void> _pickOpponents() async {
+    if (_allFriends.isEmpty) {
+      await Navigator.push(context, MaterialPageRoute(builder: (_) => const AddFriendPage()));
+      await _loadFriendOpponents();
+      return;
+    }
+    final selected = {for (final f in _friendOpponents) _friendIdOf(f)};
+    final result = await showModalBottomSheet<Set<int>>(
+      context: context,
+      backgroundColor: Colors.white,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(22))),
+      builder: (ctx) => StatefulBuilder(builder: (ctx, setSheet) {
+        return SafeArea(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const SizedBox(height: 14),
+              const Text('選擇上場的好友', style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: Color(0xFF5D4037))),
+              const SizedBox(height: 4),
+              Text('最多 3 位・好友會以分身上場，由電腦代為擲骰', style: TextStyle(fontSize: 12, color: Colors.grey.shade600)),
+              const SizedBox(height: 8),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final f in _allFriends)
+                      Builder(builder: (_) {
+                        final id = _friendIdOf(f);
+                        final on = selected.contains(id);
+                        final img = _kPetImageMap[(f['pet_key'] ?? '').toString()];
+                        return CheckboxListTile(
+                          value: on,
+                          onChanged: (v) => setSheet(() {
+                            if (v == true && selected.length < 3) {
+                              selected.add(id);
+                            } else if (v != true) {
+                              selected.remove(id);
+                            }
+                          }),
+                          secondary: CircleAvatar(
+                            backgroundColor: const Color(0xFFFFF0F5),
+                            backgroundImage: img != null ? AssetImage(img) : null,
+                            child: img == null ? Text((f['pet_emoji'] ?? '🐾').toString()) : null,
+                          ),
+                          title: Text(_friendName(f), style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text((f['pet_name'] ?? '').toString()),
+                        );
+                      }),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () => Navigator.pop(ctx, selected),
+                    child: Text(selected.isEmpty ? '不找好友，跟電腦玩' : '確定（${selected.length} 位好友）'),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        );
+      }),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      _friendOpponents = [for (final f in _allFriends) if (result.contains(_friendIdOf(f))) f];
+      _initPlayers();
+    });
+    await _saveOpponentChoice();
+  }
+
+  // ★ 新增：選圖畫面下方的「對手」區塊
+  Widget _buildOpponentPanel() {
+    final slots = <Widget>[];
+    for (var i = 0; i < 3; i++) {
+      final p = i + 1 < _players.length ? _players[i + 1] : null;
+      final img = p?.animationPath;
+      final emoji = p?.emoji ?? '🤖';
+      final isFriend = i < _friendOpponents.length;
+      slots.add(Expanded(
+        child: Column(children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              border: Border.all(color: isFriend ? Colors.pink.shade200 : Colors.grey.shade300, width: 2),
+            ),
+            padding: const EdgeInsets.all(4),
+            child: img != null
+                ? Image.asset(img, fit: BoxFit.contain,
+                    errorBuilder: (_, __, ___) => Center(child: Text(emoji)))
+                : Center(child: Text(emoji, style: const TextStyle(fontSize: 22))),
+          ),
+          const SizedBox(height: 4),
+          Text(p?.name ?? '電腦', maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Color(0xFF5D4037))),
+          Text(isFriend ? '好友分身' : '電腦',
+              style: TextStyle(fontSize: 10, color: isFriend ? Colors.pink : Colors.grey)),
+        ]),
+      ));
+    }
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 6),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.85),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        Row(children: slots),
+        TextButton.icon(
+          onPressed: _pickOpponents,
+          icon: Icon(_allFriends.isEmpty ? Icons.person_add_rounded : Icons.group_rounded, size: 18),
+          label: Text(_allFriends.isEmpty ? '加好友，讓好友一起上場' : '選擇上場的好友'),
+        ),
+      ]),
+    );
+  }
+
+  // persist=false：只顯示在畫面上，不寫到後端（例如「輪到誰」「擲出幾點」這種很頻繁的訊息）
+  void _addLog(String msg, {bool persist = true}) {
+    if (!mounted) return;
+    setState(() {
+      _gameLog = msg;
+      _logHistory.add(msg);
+      if (_logHistory.length > 80) _logHistory.removeAt(0);
+    });
+    if (!persist) return;
     // ★ 新增：一樣先拿真正登入的 user_id，再送出遊戲紀錄，避免紀錄也混在共用帳號裡
     GameApiService.instance.resolveCurrentUserId().then((realUserId) {
       GameApiService.instance
@@ -1753,12 +2118,18 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   }
 
   void _startGame(MapTheme theme) {
+    // ★ 新增：不開放選圖時，只能玩本月地圖
+    if (!_allowMapChoice && theme != _monthlyTheme) {
+      theme = _monthlyTheme;
+    }
     SelectedPet.lastMapTheme =
         theme;
 
     setState(() {
       _initMapData(theme);
       _initPlayers();
+      _logHistory.clear(); // ★ 新開局清空事件紀錄
+      _matchReported = false;
 
       _gameStarted = true;
       _gameOver = false;
@@ -2039,7 +2410,9 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     final border = isMagic ? const Color(0xFFCE93D8) : const Color(0xFF81C784);
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Container(
+      child: GestureDetector(
+        onTap: _logHistory.isEmpty ? null : _showLogHistory,
+        child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
         decoration: BoxDecoration(
@@ -2051,10 +2424,63 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
           children: [
             Text(isMagic ? "✨" : "🌸", style: const TextStyle(fontSize: 14)),
             const SizedBox(width: 8),
-            Expanded(child: Text(_gameLog, style: TextStyle(color: Colors.grey.shade700, fontSize: 11.5, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis, maxLines: 2)),
+            // ★ 修改：顯示最近兩則（原本只有一則，電腦行動時會被蓋掉），點一下看完整紀錄
+            Expanded(child: Text(_recentLogText(), style: TextStyle(color: Colors.grey.shade700, fontSize: 11.5, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis, maxLines: 2)),
+            if (_logHistory.isNotEmpty)
+              Icon(Icons.history_rounded, size: 18, color: Colors.grey.shade500),
           ],
         ),
+        ),
       ),
+    );
+  }
+
+  String _recentLogText() {
+    if (_logHistory.isEmpty) return _gameLog;
+    if (_logHistory.length == 1) return _logHistory.last;
+    final last = _logHistory.last;
+    // 遊戲結束等直接改 _gameLog 的訊息，優先顯示
+    if (_gameLog != last) return _gameLog;
+    return '${_logHistory[_logHistory.length - 2]}\n$last';
+  }
+
+  // ★ 新增：完整事件紀錄（最新的在最上面）
+  void _showLogHistory() {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        final items = _logHistory.reversed.toList();
+        return SafeArea(
+          child: SizedBox(
+            height: MediaQuery.of(ctx).size.height * 0.55,
+            child: Column(children: [
+              const SizedBox(height: 12),
+              const Text('事件紀錄', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              const Divider(height: 1),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  itemCount: items.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, i) => Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Text(items[i], style: TextStyle(
+                      fontSize: 13,
+                      color: i == 0 ? Colors.black87 : Colors.grey.shade700,
+                      fontWeight: i == 0 ? FontWeight.w600 : FontWeight.normal,
+                    )),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        );
+      },
     );
   }
 
@@ -2191,7 +2617,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                                 : (_currentPlayerIdx ==
                                 0
                                 ? '出發！'
-                                : '電腦回合'),
+                                : '${_players[_currentPlayerIdx].name} 行動中'),
                           ),
                         ),
 
@@ -2359,8 +2785,11 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
               ),
             ),
 
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
+            Center(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(vertical: 56),
+                child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
                   "🎲",
@@ -2389,7 +2818,23 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                   ),
                 ),
 
-                const SizedBox(height: 40),
+                const SizedBox(height: 14),
+
+                // ★ 新增：本月地圖提示
+                if (_monthlyMapLoaded)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.8),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      '本月地圖：${_mapName(_monthlyTheme)} ・ ${_nextChangeLabel()}',
+                      style: const TextStyle(color: Color(0xFF5D4037), fontSize: 13, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+
+                const SizedBox(height: 26),
 
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
@@ -2415,7 +2860,14 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                     ),
                   ],
                 ),
+
+                const SizedBox(height: 24),
+
+                // ★ 新增：對手（好友分身 / 電腦）
+                _buildOpponentPanel(),
               ],
+            ),
+              ),
             ),
           ],
         ),
@@ -2424,8 +2876,34 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   }
 
   Widget _themeCard(MapTheme theme, String name, String emoji, Color accent, Color bgTop, Color bgBot) {
+    // ★ 新增：標出本月地圖；不開放選圖時，非本月的地圖鎖起來
+    final isMonthly = theme == _monthlyTheme;
+    final locked = !_allowMapChoice && !isMonthly;
+    return Opacity(
+      opacity: locked ? 0.45 : 1,
+      child: Stack(clipBehavior: Clip.none, children: [
+        _themeCardBody(theme, name, emoji, accent, bgTop, bgBot, locked: locked),
+        if (isMonthly)
+          Positioned(
+            top: -8,
+            right: -6,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              decoration: BoxDecoration(color: accent, borderRadius: BorderRadius.circular(12)),
+              child: const Text('本月', style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+            ),
+          ),
+        if (locked)
+          const Positioned.fill(
+            child: Center(child: Icon(Icons.lock_rounded, size: 40, color: Colors.black45)),
+          ),
+      ]),
+    );
+  }
+
+  Widget _themeCardBody(MapTheme theme, String name, String emoji, Color accent, Color bgTop, Color bgBot, {bool locked = false}) {
     return InkWell(
-      onTap: () => _startGame(theme),
+      onTap: locked ? null : () => _startGame(theme),
       borderRadius: BorderRadius.circular(28),
       child: Container(
         width: 148,

@@ -23,6 +23,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
   late AnimationController _floatController;
   late Animation<double> _floatAnimation;
   String? _feedingPetKey;
+
+  // ★ 新增：拖曳餵食
+  String? _hoverFoodEmoji;  // 食物拖到寵物身上、還沒放開時顯示
+  String? _flyingFoodEmoji; // 放開後「食物被吃進嘴裡」的動畫
+  bool _feedInProgress = false; // 避免連續丟食物重複扣款
   Timer? _petRefreshTimer;
   String? _interactingPetKey;
   String? _interactionImage;
@@ -434,7 +439,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       'name': '火箭貓',
       'emoji': '😸', // ★ 修改：原本是火箭 🚀
       'idleImage': 'assets/pets/rocket_cat_action.png',
-      'feedAnimation': 'assets/pets/rocket_cat_eating.webp',
+      'feedAnimation': 'assets/pets/rocket_cat_eating.webp', // ★ 修正：實際檔名多一個底線，原本找不到圖所以火箭貓不會吃東西
       'bgGradient': [Color(0xFFE0F2F1), Color(0xFFB2DFDB)],
       'ringColor': Color(0xFF26A69A),
       'tagColor': Color(0xFF00695C),
@@ -1040,6 +1045,31 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
       Map<String, dynamic> food,
       ) async {
     if (!_currentPetUnlocked) return;
+    if (_feedInProgress) return;
+    _feedInProgress = true;
+    try {
+      await _feedPetInner(food);
+    } finally {
+      _feedInProgress = false;
+    }
+  }
+
+  // ★ 新增：食物拖到寵物身上放開
+  Future<void> _onFoodDropped(Map<String, dynamic> food) async {
+    setState(() {
+      _hoverFoodEmoji = null;
+      _flyingFoodEmoji = food['img']?.toString();
+    });
+    // 先讓食物「飛進嘴裡」，再開始扣款與吃東西動畫
+    await Future.delayed(const Duration(milliseconds: 450));
+    if (!mounted) return;
+    setState(() => _flyingFoodEmoji = null);
+    await _feedPet(food);
+  }
+
+  Future<void> _feedPetInner(
+      Map<String, dynamic> food,
+      ) async {
 
     final petIsDead =
         _currentPetData?['is_dead'] == true ||
@@ -1503,6 +1533,62 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
     ((petType['interactImages'] as List?) ?? const [])
         .cast<String>();
 
+    // ★ 新增：只有中間那隻、已解鎖、還活著、沒在吃東西的寵物可以接住食物
+    final canReceiveFood =
+        isCenter && isUnlocked && !isDead && _feedingPetKey == null && !_feedInProgress;
+
+    return DragTarget<Map<String, dynamic>>(
+      onWillAcceptWithDetails: (details) {
+        if (!canReceiveFood) return false;
+        final emoji = details.data['img']?.toString();
+        if (_hoverFoodEmoji != emoji) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) setState(() => _hoverFoodEmoji = emoji);
+          });
+        }
+        return true;
+      },
+      onLeave: (_) {
+        if (_hoverFoodEmoji != null) setState(() => _hoverFoodEmoji = null);
+      },
+      onAcceptWithDetails: (details) => _onFoodDropped(details.data),
+      builder: (context, candidate, rejected) {
+        final hovering = canReceiveFood && candidate.isNotEmpty;
+        return AnimatedScale(
+          scale: hovering ? 1.04 : 1.0,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          child: _buildPetCardBody(
+            petType: petType,
+            isCenter: isCenter,
+            isUnlocked: isUnlocked,
+            petData: petData,
+            isDead: isDead,
+            ringColor: ringColor,
+            idleImage: idleImage,
+            feedAnimation: feedAnimation,
+            interactImages: interactImages,
+            key: key,
+            hovering: hovering,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPetCardBody({
+    required Map<String, dynamic> petType,
+    required bool isCenter,
+    required bool isUnlocked,
+    required Map<String, dynamic>? petData,
+    required bool isDead,
+    required Color ringColor,
+    required String idleImage,
+    required String feedAnimation,
+    required List<String> interactImages,
+    required String key,
+    required bool hovering,
+  }) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Container(
@@ -1589,6 +1675,57 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
                 ),
               ),
             ),
+
+            // ★ 新增：食物拖到寵物上方時，顯示提示泡泡
+            if (hovering)
+              Positioned(
+                top: 18,
+                left: 0,
+                right: 0,
+                child: IgnorePointer(
+                  child: Center(
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(color: ringColor, width: 2),
+                        boxShadow: [BoxShadow(color: ringColor.withOpacity(0.3), blurRadius: 12)],
+                      ),
+                      child: Text(
+                        '${_hoverFoodEmoji ?? '🍽️'} 放開來餵我！',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: ringColor),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+            // ★ 新增：放開後，食物縮小飛進寵物嘴裡
+            if (isCenter && _flyingFoodEmoji != null)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: 1),
+                    duration: const Duration(milliseconds: 420),
+                    curve: Curves.easeInCubic,
+                    builder: (context, t, child) {
+                      return Align(
+                        // 從畫面下方飛到寵物嘴巴附近（大約中間偏下）
+                        alignment: Alignment(0, 0.9 - t * 0.75),
+                        child: Opacity(
+                          opacity: (1 - t * 0.9).clamp(0.0, 1.0),
+                          child: Transform.scale(
+                            scale: 1.6 - t * 1.2,
+                            child: child,
+                          ),
+                        ),
+                      );
+                    },
+                    child: Text(_flyingFoodEmoji!, style: const TextStyle(fontSize: 56)),
+                  ),
+                ),
+              ),
 
             // Feeding GIF overlay
             if (isUnlocked && _feedingPetKey == key)
@@ -1951,29 +2088,11 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
 
                                     if (!mounted) return;
 
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            PlaygroundPage(
-                                              petName:
-                                              selectedPetData['name']
-                                              as String,
-                                              petAnimationPath:
-                                              petType['idleImage']
-                                              as String,
-                                              petEmoji:
-                                              petType['emoji']
-                                              as String,
-                                              petColor:
-                                              petType['ringColor']
-                                              as Color,
-                                              initialMapTheme:
-                                              SelectedPet.lastMapTheme ??
-                                                  MapTheme.taiwan,
-                                            ),
-                                      ),
-                                    );
+                                    // ★ 修正：原本這裡會「再 push 一個新的大富翁頁」，
+                                    //   導致堆疊變成 首頁→大富翁→寵物→大富翁，按上一頁會一直在大富翁和寵物之間繞。
+                                    //   寵物頁本來就是從大富翁開進來的，選好寵物直接返回即可；
+                                    //   大富翁頁返回後會自己重讀 SelectedPet / 目前寵物。
+                                    Navigator.pop(context, true);
                                   },
                                   style:
                                   ElevatedButton
@@ -2178,10 +2297,34 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
         itemCount: _foodShop.length,
         itemBuilder: (context, index) {
           final item = _foodShop[index];
-          return InkWell(
-            onTap: () => _feedPet(item),
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
+          final tile = _foodTile(item, accentColor);
+          // ★ 修改：改成「把食物拖到寵物身上」來餵食；點一下只提示用法
+          return Draggable<Map<String, dynamic>>(
+            data: item,
+            dragAnchorStrategy: pointerDragAnchorStrategy,
+            feedback: Material(
+              color: Colors.transparent,
+              child: Transform.translate(
+                offset: const Offset(-32, -48), // 讓食物出現在手指上方，不被手指擋住
+                child: Text(item['img'].toString(), style: const TextStyle(fontSize: 64)),
+              ),
+            ),
+            childWhenDragging: Opacity(opacity: 0.35, child: tile),
+            onDragEnd: (_) {
+              if (_hoverFoodEmoji != null && mounted) setState(() => _hoverFoodEmoji = null);
+            },
+            child: GestureDetector(
+              onTap: () => _showMsg('把 ${item['img']} 拖到寵物身上就能餵食喔！'),
+              child: tile,
+            ),
+          );
+        },
+      );
+    });
+  }
+
+  Widget _foodTile(Map<String, dynamic> item, Color accentColor) {
+    return Container(
               decoration: BoxDecoration(
                 color: accentColor.withOpacity(0.07),
                 borderRadius: BorderRadius.circular(16),
@@ -2202,11 +2345,7 @@ class _PetPageState extends State<PetPage> with SingleTickerProviderStateMixin {
                   Text('${item['price']}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: Colors.brown)),
                 ]),
               ]),
-            ),
-          );
-        },
-      );
-    });
+            );
   }
 
   Widget _buildLockedShop() {

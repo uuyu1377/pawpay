@@ -16,6 +16,7 @@ import 'package:user_interface/services/recurring_api_service.dart';
 import 'package:user_interface/services/recurring_income_review_service.dart';
 
 import 'pages/home_page.dart';
+import 'pages/invoice_lottery_page.dart'; // ★ 新增：發票對獎
 import 'pages/playground_page.dart';
 import 'pages/setting_page.dart';
 import 'pages/friend_page.dart'; // ★ 好友頁搬到底部導覽列(原本在大富翁頁裡)
@@ -335,6 +336,8 @@ class _MainAppShellState extends State<MainAppShell> {
         _refreshCurrencySettings(); // ★ 合併自朋友版(C)：載入預設幣別顯示設定
         _checkTravelCurrencyReturnReminder(); // ★ 合併自朋友版(C)：旅行結束提醒切回預設幣別
         _checkMonthStartBudgetAdjustCard(); // ★ 任務2：月初動態調整小卡（當月第一次開、且收入差很多才跳）
+        // ★ 新增：發票對獎 → 好友分身戰績，依序檢查，避免兩個對話框同時跳出來疊在一起
+        _checkInvoiceLottery().whenComplete(_checkFriendMatchInbox);
       });
     }).whenComplete(() {
       // ★★★ 修正：資料載入結束後（不論成功或失敗）把首頁 loading 關掉 ★★★
@@ -923,6 +926,96 @@ class _MainAppShellState extends State<MainAppShell> {
       CurrencyService.symbolForCode(_pendingCurrencyCode ?? 'TWD');
 
   // ★★★★★ 以下為合併自朋友版(B 遊戲資金)：每日簽到、發票號碼解析、記帳發獎勵 ★★★★★
+  // ★ 新增：有好友在大富翁裡跟你的分身對戰過，開 App 時告訴你結果
+  Future<void> _checkFriendMatchInbox() async {
+    try {
+      final api = GameApiService.instance;
+      final uid = await api.resolveCurrentUserId();
+      final items = await api.fetchFriendMatchInbox(userId: uid);
+      if (items.isEmpty || !mounted) return;
+      String line(Map<String, dynamic> m) {
+        final host = m['host_name'] ?? '好友';
+        final rank = m['my_rank'];
+        final total = m['player_count'];
+        final result = m['my_bankrupt'] == true
+            ? '你的分身破產了 😵'
+            : (rank == 1 ? '你的分身拿下第 1 名 🏆' : '你的分身拿到第 $rank 名（共 $total 人）');
+        return '$host 在「${m['theme_name']}」跟你的分身玩了一局，$result';
+      }
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('🎲 好友找你玩大富翁'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final m in items.take(3))
+                Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(line(m))),
+              if (items.length > 3) Text('…還有 ${items.length - 3} 場', style: const TextStyle(color: Colors.grey)),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('知道了')),
+            FilledButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _openPlayground();
+              },
+              child: const Text('我也來玩'),
+            ),
+          ],
+        ),
+      );
+      await api.markFriendMatchInboxSeen(userId: uid);
+    } catch (e) {
+      debugPrint('讀取好友對戰紀錄失敗：$e');
+    }
+  }
+
+  // ★ 新增：開 App 時對一次發票，有「還沒通知過」的中獎就跳通知 + 對話框
+  Future<void> _checkInvoiceLottery() async {
+    try {
+      final api = GameApiService.instance;
+      final uid = await api.resolveCurrentUserId();
+      final result = await api.checkInvoiceLottery(userId: uid);
+      final wins = ((result['wins'] as List?) ?? const [])
+          .whereType<Map>()
+          .where((w) => w['is_new'] == true && w['expired'] != true)
+          .toList();
+      if (wins.isEmpty || !mounted) return;
+
+      final total = wins.fold<int>(0, (s, w) => s + ((w['prize_amount'] as num?)?.toInt() ?? 0));
+      final best = wins.first;
+      final summary = wins.length == 1
+          ? '${best['merchant_name'] ?? '你'}的發票中了${best['prize_name']}（\$$total）！'
+          : '你有 ${wins.length} 張發票中獎，共 \$$total！';
+      await NotificationService.instance.showNow(id: 21003, title: '🎉 發票中獎了！', body: summary);
+      if (!mounted) return;
+
+      final open = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('🎉 發票中獎了！'),
+          content: Text('$summary\n\n記得在領獎期限內帶發票去領獎喔。'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('知道了')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('查看')),
+          ],
+        ),
+      );
+      if (open == true && mounted) {
+        await Navigator.of(context).push(MaterialPageRoute(builder: (_) => const InvoiceLotteryPage()));
+      } else {
+        await api.markInvoiceLotterySeen(userId: uid);
+      }
+    } catch (e) {
+      debugPrint('發票對獎失敗：$e');
+    }
+  }
+
   Future<void> _checkDailyCheckInReward() async {
     try {
       await GameApiService.instance.dailyCheckIn();
@@ -2577,13 +2670,19 @@ class _MainAppShellState extends State<MainAppShell> {
         case 'fox': aiComment = "呵呵，早安呀！今天第一筆開銷，幫你精打細算囉。"; break;
         case 'parrot': aiComment = "早安！早安！第一筆帳！第一筆帳！"; break;
         case 'sloth': aiComment = "早...安...第...一...筆..."; break;
+        case 'shiba_dog': // ★ 修正：寵物頁/扭蛋用的新 key
         case 'cute_dog': aiComment = "哇！！早安！第一筆帳！太棒啦！！"; break;
         case 'pomeranian': aiComment = "早安呀～今天的第一筆開銷，人家幫你記好囉～"; break;
+        case 'calm_dog': // ★ 修正：寵物頁/扭蛋用的新 key
         case 'norm_dog': aiComment = "喔，早安。第一筆帳記好了，就這樣。"; break;
+        case 'clingy_dog': // ★ 修正：寵物頁/扭蛋用的新 key
         case 'wagging_dog': aiComment = "早安！！太棒啦！第一筆帳！搖搖搖！"; break;
+        case 'love_cat': // ★ 修正：寵物頁/扭蛋用的新 key
         case 'lovely_cat': aiComment = "早安♡ 第一筆帳記好了，今天也要開開心心喔～"; break;
+        case 'work_cat': // ★ 修正：寵物頁/扭蛋用的新 key
         case 'blue_cat': aiComment = "早安。今日首筆數據已記錄，請繼續保持效率。"; break;
         case 'rocket_cat': aiComment = "早安！啟動引擎！今天的第一筆帳，衝向星際！"; break;
+        case 'waiting_cat': // ★ 修正：寵物頁/扭蛋用的新 key
         case 'loader_cat': aiComment = "早安...等待是一種智慧，第一筆帳已落實。"; break;
         case 'bear': aiComment = "哼唧...早安...第一筆帳記好了，有蜂蜜嗎？"; break;
         case 'bee': aiComment = "嗡！早安！第一筆帳記錄完畢，效率提升！"; break;
@@ -2879,6 +2978,9 @@ class _MainAppShellState extends State<MainAppShell> {
     );
     // ★ 新增：從大富翁／寵物頁返回後重讀設定，讓上場寵物立即同步
     await _loadRuntimeSettings();
+    // ★ 修正：大富翁按上一頁一律回到首頁（原本會回到開大富翁之前停留的分頁，例如好友或設定）
+    if (!mounted) return;
+    if (_selectedIndex != 0) _onItemTapped(0);
   }
 
   // ★★★ 新增：條件判斷觸發特定寵物動畫與文字 (16隻對應防呆映射) ★★★
@@ -2929,20 +3031,26 @@ class _MainAppShellState extends State<MainAppShell> {
         return '🦥';
       case 'fox':
         return '🦊';
+      case 'shiba_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'cute_dog':
         return '🐕';
       case 'pomeranian':
         return '🐩';
+      case 'calm_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'norm_dog':
         return '🦮';
+      case 'clingy_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'wagging_dog':
         return '🐕';
+      case 'love_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'lovely_cat':
         return '😻';
+      case 'work_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'blue_cat':
         return '😼';
       case 'rocket_cat':
         return '😸';
+      case 'waiting_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'loader_cat':
         return '🐈';
       case 'bear':
@@ -2969,21 +3077,27 @@ class _MainAppShellState extends State<MainAppShell> {
       case 'fox':
         return 'assets/pets/fox.png';
 
+      case 'shiba_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'cute_dog':
         return 'assets/pets/shiba.png';
       case 'pomeranian':
         return 'assets/pets/pomeranian.png';
+      case 'calm_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'norm_dog':
         return 'assets/pets/calm_dog.png';
+      case 'clingy_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'wagging_dog':
         return 'assets/pets/clingy_dog.png';
 
+      case 'love_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'lovely_cat':
         return 'assets/pets/love_cat.png';
+      case 'work_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'blue_cat':
         return 'assets/pets/work_cat.png';
       case 'rocket_cat':
         return 'assets/pets/rocket_cat.png';
+      case 'waiting_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'loader_cat':
         return 'assets/pets/waiting_cat.png';
 
@@ -3016,21 +3130,27 @@ class _MainAppShellState extends State<MainAppShell> {
       case 'fox':
         return 'assets/pets/fox_$suffix.png';
 
+      case 'shiba_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'cute_dog':
         return 'assets/pets/shiba_$suffix.png';
       case 'pomeranian':
         return 'assets/pets/pomeranian_$suffix.png';
+      case 'calm_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'norm_dog':
         return 'assets/pets/calm_dog_$suffix.png';
+      case 'clingy_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'wagging_dog':
         return 'assets/pets/clingy_dog_$suffix.png';
 
+      case 'love_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'lovely_cat':
         return 'assets/pets/love_cat_$suffix.png';
+      case 'work_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'blue_cat':
         return 'assets/pets/work_cat_$suffix.png';
       case 'rocket_cat':
         return 'assets/pets/rocket_cat_$suffix.png';
+      case 'waiting_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'loader_cat':
         return 'assets/pets/waiting_cat_$suffix.png';
 
@@ -3062,27 +3182,33 @@ class _MainAppShellState extends State<MainAppShell> {
       case 'fox':
         return 'assets/pets/fox_invoice.png';
 
+      case 'shiba_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'cute_dog':
         return 'assets/pets/shiba_invoice.png';
 
       case 'pomeranian':
         return 'assets/pets/pomeranian_invoice.png';
 
+      case 'calm_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'norm_dog':
         return 'assets/pets/calm_dog_invoice.png';
 
+      case 'clingy_dog': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'wagging_dog':
         return 'assets/pets/clingy_dog_invoice.png';
 
+      case 'love_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'lovely_cat':
         return 'assets/pets/love_cat_invoice.png';
 
+      case 'work_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'blue_cat':
         return 'assets/pets/work_cat_invoice.png';
 
       case 'rocket_cat':
         return 'assets/pets/rocket_cat_invoice.png';
 
+      case 'waiting_cat': // ★ 修正：寵物頁/扭蛋用的新 key
       case 'loader_cat':
         return 'assets/pets/waiting_cat_invoice.png';
 

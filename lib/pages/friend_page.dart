@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:user_interface/pages/add_friend_page.dart';
+import 'package:user_interface/pages/playground_page.dart';
 import 'package:user_interface/services/game_api_service.dart';
 
 class FriendPage extends StatefulWidget {
@@ -17,6 +18,8 @@ class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMi
   List<Map<String, dynamic>> _friends = [];
   List<Map<String, dynamic>> _leaderboard = [];
   List<Map<String, dynamic>> _pendingRequests = []; // ★ 新增：別人送給我、我還沒回應的好友邀請
+  List<Map<String, dynamic>> _sentRequests = [];    // ★ 新增：我送出去、對方還沒回應的邀請
+  String? _loadError;                               // ★ 新增：載入失敗的訊息（不要讓連線失敗看起來像「沒有好友」）
   int _currentUserId = 1; // ★ 新增：真正登入的 user_id，預設 1 只是備用值，_loadAll() 會立刻覆蓋成真正的值
 
   @override
@@ -37,7 +40,7 @@ class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMi
   Future<void> reload() => _loadAll();
 
   Future<void> _loadAll() async {
-    setState(() => _isLoading = true);
+    setState(() { _isLoading = true; _loadError = null; });
     try {
       final api = GameApiService.instance;
       // ★ 修正：跟大富翁/寵物同一種 bug，原本沒傳 userId 就會用寫死的預設值 1，
@@ -48,17 +51,22 @@ class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMi
         api.fetchLeaderboard(userId: _currentUserId).catchError((_) => <Map<String, dynamic>>[]),
         // ★ 新增：一起抓「別人送給我的邀請」
         api.fetchFriendRequests(userId: _currentUserId).catchError((_) => <Map<String, dynamic>>[]),
+        api.fetchSentFriendRequests(userId: _currentUserId).catchError((_) => <Map<String, dynamic>>[]),
       ]);
       if (!mounted) return;
       setState(() {
         _friends         = results[0];
         _leaderboard     = results[1];
         _pendingRequests = results[2]; // ★ 新增
+        _sentRequests    = results[3];
         _isLoading       = false;
       });
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _isLoading = false);
+      setState(() {
+        _isLoading = false;
+        _loadError = '無法連線到伺服器，請確認網路後再試一次';
+      });
     }
   }
 
@@ -80,6 +88,60 @@ class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMi
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('操作失敗：$e')));
+    }
+  }
+
+  // ★ 新增：取消我送出的邀請
+  Future<void> _cancelRequest(int toUserId) async {
+    try {
+      await GameApiService.instance.cancelFriendRequest(userId: _currentUserId, toUserId: toUserId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('已取消邀請')));
+      await _loadAll();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('取消失敗：$e')));
+    }
+  }
+
+  // ★ 新增：讓這位好友的分身上場，直接開一局大富翁
+  void _playWithFriend(Map<String, dynamic> f) {
+    final friendId = int.tryParse((f['friend_id'] ?? f['id'])?.toString() ?? '') ?? 0;
+    if (friendId <= 0) return;
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => PlaygroundPage(inviteFriendIds: [friendId])),
+    );
+  }
+
+  // ★ 新增：刪除好友（先跳確認視窗）
+  Future<void> _confirmRemoveFriend(Map<String, dynamic> f) async {
+    final name = _name(f);
+    final friendId = int.tryParse((f['friend_id'] ?? f['id'])?.toString() ?? '') ?? 0;
+    if (friendId <= 0) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('刪除好友'),
+        content: Text('確定要把「$name」從好友中移除嗎？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('刪除', style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await GameApiService.instance.removeFriend(userId: _currentUserId, friendId: friendId);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已將 $name 移除好友')));
+      await _loadAll();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('刪除失敗：$e')));
     }
   }
 
@@ -134,6 +196,8 @@ class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMi
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Colors.pink))
+          : _loadError != null
+          ? _buildError()
           : RefreshIndicator(
         onRefresh: _loadAll,
         child: TabBarView(
@@ -142,6 +206,7 @@ class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMi
           children: [
             Column(children: [
               _buildPendingRequests(),
+              _buildSentRequests(),
               Expanded(child: _buildFriendList()),
             ]),
             _buildLeaderboard(),
@@ -209,6 +274,69 @@ class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMi
                 ),
               ]),
             );
+          }),
+        ],
+      ),
+    );
+  }
+
+  // ★ 新增：載入失敗畫面
+  Widget _buildError() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.wifi_off_rounded, size: 56, color: Colors.grey),
+          const SizedBox(height: 12),
+          Text(_loadError ?? '載入失敗', textAlign: TextAlign.center, style: const TextStyle(color: Colors.brown)),
+          const SizedBox(height: 16),
+          ElevatedButton.icon(
+            onPressed: _loadAll,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('重新載入'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.pink,
+              foregroundColor: Colors.white,
+              shape: const StadiumBorder(),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  // ★ 新增：我送出、還在等對方回應的邀請，可以取消
+  Widget _buildSentRequests() {
+    if (_sentRequests.isEmpty) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '等待對方回應 (${_sentRequests.length})',
+            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.brown, fontSize: 15),
+          ),
+          const SizedBox(height: 6),
+          ..._sentRequests.map((req) {
+            final name = _name(req);
+            final toUserId = int.tryParse(req['to_user_id']?.toString() ?? '') ?? 0;
+            return Row(children: [
+              const Icon(Icons.schedule_rounded, size: 18, color: Colors.grey),
+              const SizedBox(width: 8),
+              Expanded(child: Text(name, style: const TextStyle(fontWeight: FontWeight.w600))),
+              TextButton(
+                onPressed: toUserId > 0 ? () => _cancelRequest(toUserId) : null,
+                child: const Text('取消邀請', style: TextStyle(color: Colors.grey)),
+              ),
+            ]);
           }),
         ],
       ),
@@ -303,6 +431,24 @@ class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMi
         ])),
         // 代幣
         _coinBadge(money),
+        // ★ 新增：一鍵找他玩大富翁
+        IconButton(
+          tooltip: '找他玩大富翁',
+          icon: const Icon(Icons.casino_rounded, color: Colors.pink),
+          onPressed: () => _playWithFriend(f),
+        ),
+        // ★ 新增：更多選項（刪除好友）
+        PopupMenuButton<String>(
+          icon: Icon(Icons.more_vert_rounded, color: Colors.grey.shade400),
+          onSelected: (v) {
+            if (v == 'play') _playWithFriend(f);
+            if (v == 'remove') _confirmRemoveFriend(f);
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'play', child: Text('🎲 找他玩大富翁')),
+            PopupMenuItem(value: 'remove', child: Text('刪除好友', style: TextStyle(color: Colors.red))),
+          ],
+        ),
       ]),
     );
   }

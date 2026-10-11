@@ -56,6 +56,13 @@ class NotificationService {
     iOS: DarwinNotificationDetails(),
   );
 
+  // ★ 新增：立刻跳一則通知（例如發票中獎）
+  Future<void> showNow({required int id, required String title, required String body}) async {
+    if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
+    await initialize();
+    await _plugin.show(id, title, body, _details);
+  }
+
   Future<void> syncFromPreferences() async {
     if (kIsWeb || (!Platform.isAndroid && !Platform.isIOS)) return;
     await initialize();

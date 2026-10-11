@@ -45,6 +45,48 @@ class GameApiService {
     ),
   );
 
+  // ★ 新增：好友分身對戰
+  Future<void> reportFriendMatch({
+    int userId = 1,
+    required String theme,
+    required int myRank,
+    required int myMoney,
+    required List<Map<String, dynamic>> opponents,
+  }) async {
+    await _dio.post('$baseUrl/game/friend-match/result', data: {
+      'user_id': userId,
+      'theme': theme,
+      'my_rank': myRank,
+      'my_money': myMoney,
+      'opponents': opponents,
+    });
+  }
+
+  Future<List<Map<String, dynamic>>> fetchFriendMatchInbox({int userId = 1}) async {
+    final res = await _dio.get('$baseUrl/game/friend-match/inbox', queryParameters: {'user_id': userId});
+    return _asListOfMaps(res.data);
+  }
+
+  Future<void> markFriendMatchInboxSeen({int userId = 1}) async {
+    await _dio.post('$baseUrl/game/friend-match/inbox/seen', data: {'user_id': userId});
+  }
+
+  // ★ 新增：發票對獎（8000 後端抓財政部公開中獎號碼並比對）
+  Future<Map<String, dynamic>> checkInvoiceLottery({int userId = 1}) async {
+    final res = await _dio.get('$baseUrl/invoice-lottery/check', queryParameters: {'user_id': userId});
+    return _asMap(res.data);
+  }
+
+  Future<void> markInvoiceLotterySeen({int userId = 1}) async {
+    await _dio.post('$baseUrl/invoice-lottery/seen', data: {'user_id': userId});
+  }
+
+  // ★ 新增：伺服器統一的「本月地圖」。回傳 theme / name / period / next_change_at / allow_choice
+  Future<Map<String, dynamic>> fetchCurrentMap() async {
+    final res = await _dio.get('$baseUrl/game/map/current');
+    return _asMap(res.data);
+  }
+
   Future<Map<String, dynamic>> fetchGameState({
     int userId = 1,
     required String theme,
@@ -187,6 +229,15 @@ class GameApiService {
     return _asMap(res.data);
   }
 
+  // ★ 新增：十抽送一抽（一次抽 draws 次，預設 11）。回傳 results: [{pet: {...}|null, duplicate: bool}, ...]
+  Future<Map<String, dynamic>> gachaDrawMulti({int userId = 1, int draws = 11, int cost = 0}) async {
+    final res = await _dio.post(
+      '$baseUrl/game/gacha/draw-multi',
+      data: {'user_id': userId, 'draws': draws, 'cost': cost},
+    );
+    return _asMap(res.data);
+  }
+
   Future<List<Map<String, dynamic>>> fetchFriends({int userId = 1}) async {
     final res = await _dio.get('$baseUrl/game/friends', queryParameters: {'user_id': userId});
     return _asListOfMaps(res.data);
@@ -207,8 +258,27 @@ class GameApiService {
     return _asListOfMaps(res.data);
   }
 
-  Future<void> addFriend({int userId = 1, required int friendId}) async {
-    await _dio.post('$baseUrl/game/friends', data: {'user_id': userId, 'friend_id': friendId});
+  /// 回傳後端給的狀態：sent（已送出）/ already_sent（之前送過了）/
+  /// already_friends（已經是好友）/ accepted（對方先邀請過你，直接成為好友）
+  Future<String> addFriend({int userId = 1, required int friendId}) async {
+    final res = await _dio.post('$baseUrl/game/friends', data: {'user_id': userId, 'friend_id': friendId});
+    return (_asMap(res.data)['status'] ?? 'sent').toString();
+  }
+
+  // ★ 新增：我送出去、對方還沒回應的邀請
+  Future<List<Map<String, dynamic>>> fetchSentFriendRequests({int userId = 1}) async {
+    final res = await _dio.get('$baseUrl/game/friends/sent', queryParameters: {'user_id': userId});
+    return _asListOfMaps(res.data);
+  }
+
+  // ★ 新增：取消我送出的邀請
+  Future<void> cancelFriendRequest({int userId = 1, required int toUserId}) async {
+    await _dio.delete('$baseUrl/game/friends/requests/$toUserId', queryParameters: {'user_id': userId});
+  }
+
+  // ★ 新增：刪除好友
+  Future<void> removeFriend({int userId = 1, required int friendId}) async {
+    await _dio.delete('$baseUrl/game/friends/$friendId', queryParameters: {'user_id': userId});
   }
 
   // ★★★ 新增：查詢「別人送給我、我還沒回應」的好友邀請 ★★★
@@ -458,11 +528,13 @@ class GameApiService {
     return _asMap(res.data);
   }
 
-  Future<Map<String, dynamic>> purchasePetChoiceTicket({Object? userId}) async {
+  // ★ 修改：寵物不課金。原本的 purchasePetChoiceTicket（NT\$200 模擬付款）已移除，
+  //   改成用遊戲內的「扭蛋幣」兌換自選券，後端會一次完成扣幣 + 加券。
+  Future<Map<String, dynamic>> exchangePetChoiceTicket({Object? userId}) async {
     final uid = await _resolveUserId(userId);
     final res = await _dio.post(
-      '$aiBaseUrl/api/game/pet-choice/purchase',
-      data: {'user_id': uid, 'package_id': 'pet_ticket_200'},
+      '$aiBaseUrl/api/game/pet-choice/exchange',
+      data: {'user_id': uid},
       options: await _authOptions(),
     );
     return _asMap(res.data);
