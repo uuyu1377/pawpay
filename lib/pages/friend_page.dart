@@ -6,10 +6,12 @@ class FriendPage extends StatefulWidget {
   const FriendPage({super.key});
 
   @override
-  State<FriendPage> createState() => _FriendPageState();
+  State<FriendPage> createState() => FriendPageState();
 }
 
-class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateMixin {
+// ★ 好友頁搬到底部導覽列：State 改成公開(去掉底線)，讓 MainAppShell 可以用 GlobalKey 呼叫 reload()，
+//   作法跟 SettingPageState 一樣。內容與邏輯完全沒變。
+class FriendPageState extends State<FriendPage> with SingleTickerProviderStateMixin {
   late TabController _tabController;
   bool _isLoading = true;
   List<Map<String, dynamic>> _friends = [];
@@ -29,6 +31,10 @@ class _FriendPageState extends State<FriendPage> with SingleTickerProviderStateM
     _tabController.dispose();
     super.dispose();
   }
+
+  // ★ 好友頁搬到底部導覽列：頁面被 IndexedStack 保留在記憶體，切回來不會自動重載；
+  //   外層切到「好友」分頁時呼叫這個，重新抓好友/排行榜/邀請，並重新確認目前登入的 user_id。
+  Future<void> reload() => _loadAll();
 
   Future<void> _loadAll() async {
     setState(() => _isLoading = true);

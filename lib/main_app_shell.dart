@@ -18,6 +18,7 @@ import 'package:user_interface/services/recurring_income_review_service.dart';
 import 'pages/home_page.dart';
 import 'pages/playground_page.dart';
 import 'pages/setting_page.dart';
+import 'pages/friend_page.dart'; // ★ 好友頁搬到底部導覽列(原本在大富翁頁裡)
 import 'pages/spending_analysis_page.dart'; // ★ 任務2：詳細分析頁
 import 'pages/voice_page.dart';
 import 'config/backend_config.dart';
@@ -130,6 +131,8 @@ class _MainAppShellState extends State<MainAppShell> {
   final GlobalKey<HomePageState> _homeKey = GlobalKey<HomePageState>();
   // ★ 即時同步：設定頁被 IndexedStack 保留在記憶體，切回來不會自動重載；用這把 key 主動叫它 reload。
   final GlobalKey<SettingPageState> _settingsKey = GlobalKey<SettingPageState>();
+  // ★ 好友頁搬到底部導覽列：同樣被 IndexedStack 保留，用這把 key 在切到好友分頁時叫它 reload。
+  final GlobalKey<FriendPageState> _friendKey = GlobalKey<FriendPageState>();
 
   // 全部 16 隻寵物動畫清單（備用）
   static const List<String> _loadingAnimations = [
@@ -2825,6 +2828,10 @@ class _MainAppShellState extends State<MainAppShell> {
       _homeKey.currentState?.reloadCurrencySettings();
       _processRecurringThenLoad();
     } else if (index == 1) {
+      // ★ 好友頁搬到底部導覽列：切到好友分頁時重抓好友/排行榜/邀請，避免顯示舊資料或別的帳號的資料。
+      _friendKey.currentState?.reload();
+    } else if (index == 2) {
+      // ★ 好友分頁插在中間，設定頁的 index 從 1 改成 2
       // ★ 即時同步：切到設定頁時強制重載，讓預算/目標存款/已花/建議都是最新的，不用滑掉 App。
       _settingsKey.currentState?.reload();
     }
@@ -3173,6 +3180,7 @@ class _MainAppShellState extends State<MainAppShell> {
                   : const Center(
                 child: CircularProgressIndicator(),
               ),
+              FriendPage(key: _friendKey), // ★ 好友頁搬到底部導覽列 (index 1)
               SettingPage(key: _settingsKey), // ★ 即時同步：掛 key 供切回時 reload
             ],
           ),
@@ -3213,6 +3221,11 @@ class _MainAppShellState extends State<MainAppShell> {
                     BottomNavigationBarItem(
                       icon: Icon(Icons.home_rounded),
                       label: 'Home',
+                    ),
+                    // ★ 好友頁搬到底部導覽列 (原本在大富翁頁右上角的好友按鈕)
+                    BottomNavigationBarItem(
+                      icon: Icon(Icons.group_rounded),
+                      label: 'Friends',
                     ),
                     BottomNavigationBarItem(
                       icon: Icon(Icons.settings_rounded),

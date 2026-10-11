@@ -26,6 +26,8 @@ import 'settings_faq_page.dart';
 import 'recurring_transactions_page.dart';
 import 'category_memory_page.dart'; // ★ AI 自適應：AI 學到的分類規則面板
 import 'fund_allocation_page.dart'; // ★ 資金分配頁
+import '../services/firebase_auth_service.dart'; // ★ 刪除所有資料後一併登出 Google/Firebase
+import '../services/line_auth_service.dart'; // ★ 刪除所有資料後一併登出 LINE
 
 class SettingPage extends StatefulWidget {
   const SettingPage({super.key});
@@ -1311,13 +1313,31 @@ class SettingPageState extends State<SettingPage> {
       // 2. 清空本地 SharedPreferences，確保使用者完全登出
       await prefs.clear();
 
+      // ★ 修正：連第三方登入(Google/Firebase/LINE)的登入狀態也一起登出，避免殘留舊帳號
+      try {
+        await FirebaseAuthService.signOut();
+      } catch (e) {
+        debugPrint("Firebase/Google 登出時發生錯誤：$e");
+      }
+      try {
+        await LineAuthService.signOut();
+      } catch (e) {
+        debugPrint("LINE 登出時發生錯誤：$e");
+      }
+
       if (!mounted) return;
       Navigator.of(context).pop(); // 關閉 loading
 
-      _showResultDialog(
+      // ★ 修正：原本只叫使用者「重新啟動 App」，但 App 不會自己跳走；
+      //   這時 user_id 已被清空，GameApiService 會退回預設 user 1，
+      //   使用者如果直接點好友/大富翁，就會看到別人(user 1)的資料。
+      //   改成：使用者按下「確定」後，直接清空整個頁面堆疊並回到登入頁。
+      await _showResultDialog(
         '資料已徹底刪除',
-        '你在系統中的所有記帳紀錄與資金已全部銷毀，符合隱私權規範。\n\n請重新啟動 App 建立新的設定與角色。',
+        '你在系統中的所有記帳紀錄與資金已全部銷毀，符合隱私權規範。\n\n按下「確定」後會回到登入頁，請重新建立新的設定與角色。',
       );
+      if (!mounted) return;
+      Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
     } catch (e) {
       if (!mounted) return;
       Navigator.of(context).pop(); // 關閉 loading
@@ -1353,8 +1373,9 @@ class SettingPageState extends State<SettingPage> {
     );
   }
 
-  void _showResultDialog(String title, String content) {
-    showDialog(
+  // ★ 修改：回傳 Future，讓「刪除所有資料」可以等使用者按完確定再跳回登入頁；其他呼叫的地方不受影響
+  Future<void> _showResultDialog(String title, String content) {
+    return showDialog(
       context: context,
       builder: (BuildContext context) {
         return AlertDialog(
@@ -1641,7 +1662,7 @@ class SettingPageState extends State<SettingPage> {
                           shape: BoxShape.circle,
                           border: Border.all(
                             color:
-                                preset.spec == spec ? p.ink : Colors.transparent,
+                            preset.spec == spec ? p.ink : Colors.transparent,
                             width: 2.5,
                           ),
                         ),

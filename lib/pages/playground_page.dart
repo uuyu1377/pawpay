@@ -12,7 +12,7 @@ import 'package:sensors_plus/sensors_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // ★ 新增：讀取使用者實際選的寵物 key，修復大富翁沒圖片的問題
 
 import 'add_friend_page.dart';
-import 'friend_page.dart';
+// import 'friend_page.dart'; // ★ 好友頁已搬到底部導覽列，這裡不再使用
 import 'pet_page.dart';
 import 'package:user_interface/services/game_api_service.dart';
 
@@ -2006,9 +2006,10 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
               ),
             ),
           ),
-          const SizedBox(width: 8),
-          _roundIconButton(Icons.group_rounded, accent,
-                  () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FriendPage()))),
+          // ★ 好友頁已搬到 App 最下方導覽列(跟 Home、Settings 並列)，大富翁這裡的入口先註解保留，不再顯示。
+          // const SizedBox(width: 8),
+          // _roundIconButton(Icons.group_rounded, accent,
+          //         () => Navigator.push(context, MaterialPageRoute(builder: (_) => const FriendPage()))),
         ],
       ),
     );

@@ -14,6 +14,7 @@ import 'theme/app_palette.dart';
 import 'theme/palette_controller.dart';
 import 'pages/login_page.dart';
 import 'widgets/app_lock_gate.dart';
+import 'widgets/network_check_gate.dart'; // ★ 新增：打開 App 沒網路時跳提醒
 import 'services/notification_service.dart'; // ★ 合併自朋友版：遊戲/旅遊匯率提醒通知服務
 
 // ★★★ 關鍵：必須引入掃描頁面，不然 App 找不到路 ★★★
@@ -72,23 +73,25 @@ class MyApp extends StatelessWidget {
     return ValueListenableBuilder<PaletteSpec>(
       valueListenable: PaletteController.instance,
       builder: (context, spec, _) => MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'AI 記帳',
-      theme: buildAppTheme(spec),
-      home: AppLockGate(
-        enabledForThisStart: enableAppLock,
-        child: startPage,
-      ),
+        debugShowCheckedModeBanner: false,
+        title: 'AI 記帳',
+        theme: buildAppTheme(spec),
+        // ★ 新增：在所有頁面最上層檢查網路(登入頁、首頁都蓋得到)，沒網路就提醒使用者開網路
+        builder: (context, child) => NetworkCheckGate(child: child ?? const SizedBox.shrink()),
+        home: AppLockGate(
+          enabledForThisStart: enableAppLock,
+          child: startPage,
+        ),
 
-      // ★★★ 修正這裡：補齊所有的路由 ★★★
-      routes: {
-        '/home': (context) => const MainAppShell(),
-        '/login': (context) => const LoginPage(),
+        // ★★★ 修正這裡：補齊所有的路由 ★★★
+        routes: {
+          '/home': (context) => const MainAppShell(),
+          '/login': (context) => const LoginPage(),
 
-        // 補回這兩行，按鈕才會動！
-        '/scan': (context) => const UnifiedAutoScanPageV2(),
-        '/scan/traditional': (context) => const UnifiedAutoScanPageV2(forceTraditional: true),
-      },
+          // 補回這兩行，按鈕才會動！
+          '/scan': (context) => const UnifiedAutoScanPageV2(),
+          '/scan/traditional': (context) => const UnifiedAutoScanPageV2(forceTraditional: true),
+        },
       ),
     );
   }
