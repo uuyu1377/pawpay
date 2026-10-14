@@ -216,6 +216,67 @@ class GameApiService {
     );
   }
 
+  // ★ 新增：好友對戰聊天室
+  Future<List<Map<String, dynamic>>> mpChatList({required int gameId, required int userId, int afterId = 0}) async {
+    final res = await _dio.get(
+      '$baseUrl/mp/games/$gameId/chat',
+      queryParameters: {'user_id': userId, 'after_id': afterId},
+    );
+    return _asListOfMaps(_asMap(res.data)['messages']);
+  }
+
+  Future<void> mpChatSend({
+    required int gameId,
+    required int userId,
+    required String kind, // text | sticker
+    required String body,
+  }) async {
+    await _dio.post(
+      '$baseUrl/mp/games/$gameId/chat',
+      data: {'user_id': userId, 'kind': kind, 'body': body},
+    );
+  }
+
+  // ★ 新增：開局時請 5000 的 AI 一次生成電腦玩家台詞；失敗回傳空的（改用內建台詞）
+  Future<Map<String, dynamic>> fetchBotLines({
+    required List<Map<String, String>> bots,
+    required String opponentName,
+  }) async {
+    final res = await _dio
+        .post(
+      '$aiBaseUrl/api/game/bot-lines',
+      data: {'bots': bots, 'opponent_name': opponentName},
+      options: await _authOptions(),
+    )
+        .timeout(const Duration(seconds: 20));
+    final lines = _asMap(res.data)['lines'];
+    return lines is Map ? Map<String, dynamic>.from(lines) : <String, dynamic>{};
+  }
+
+  // ★ 新增：單人大富翁本月這局結束 → 由 8000 依資料庫裡的 4 位玩家算名次（每月只算一次）
+  Future<Map<String, dynamic>> finishMonopolySeason({int userId = 1, required String theme}) async {
+    final res = await _dio.post(
+      '$baseUrl/game/season/finish',
+      data: {'user_id': userId, 'theme': theme},
+    );
+    return _asMap(res.data);
+  }
+
+  // ★ 新增：大富翁買地 / 升級 → 每日任務「大富翁買地或升級 1 次」
+  Future<void> recordMonopolyBuild({Object? userId, required String hint}) async {
+    try {
+      await recordMissionEvent(
+        userId: userId,
+        source: 'monopoly',
+        isInvoice: false,
+        eventType: 'monopoly_build',
+        uniqueHint: hint,
+      );
+    } catch (_) {
+      // 任務紀錄失敗不影響遊戲
+    }
+  }
+
   Future<int> fetchPlayerMoney({int userId = 1}) async {
     final res = await _dio.get('$baseUrl/game/player', queryParameters: {'user_id': userId});
     final data = _asMap(res.data);

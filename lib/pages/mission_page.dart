@@ -104,27 +104,41 @@ class _MissionPageState extends State<MissionPage> {
       );
     }
 
+    // ★ 修改：依類別分組顯示（每日任務 / 每月大富翁 / 一般任務）
+    const groups = [
+      ('daily', '☀️ 每日任務（每天 0 點重置）'),
+      ('monthly', '🏆 每月大富翁名次（單人＋好友對戰）'),
+      ('general', '📒 記帳與預算任務'),
+    ];
+    final children = <Widget>[
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFFF4E8),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: const Text(
+          '完成任務可領取扭蛋幣；只有登入不會增加任務進度。\n單人大富翁與好友對戰每月各依名次領一次 10 / 8 / 5 / 1 個扭蛋幣。',
+          style: TextStyle(fontWeight: FontWeight.w600, height: 1.4),
+        ),
+      ),
+    ];
+    for (final (key, label) in groups) {
+      final items = _missions.where((m) => (m['category']?.toString() ?? 'general') == key).toList();
+      if (items.isEmpty) continue;
+      children.add(Padding(
+        padding: const EdgeInsets.only(top: 8, left: 4),
+        child: Text(label, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+      ));
+      children.addAll(items.map(_missionCard));
+    }
+
     return ListView.separated(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
-      itemCount: _missions.length + 1,
+      itemCount: children.length,
       separatorBuilder: (_, __) => const SizedBox(height: 12),
-      itemBuilder: (context, index) {
-        if (index == 0) {
-          return Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFFFF4E8),
-              borderRadius: BorderRadius.circular(18),
-            ),
-            child: const Text(
-              '完成記帳與預算任務後可領取扭蛋幣；只有登入不會增加任務進度。',
-              style: TextStyle(fontWeight: FontWeight.w600, height: 1.4),
-            ),
-          );
-        }
-        return _missionCard(_missions[index - 1]);
-      },
+      itemBuilder: (context, index) => children[index],
     );
   }
 

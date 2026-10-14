@@ -4,6 +4,9 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../widgets/toy_board_art.dart';
 import '../widgets/island_board_3d.dart';
+import '../widgets/game_event_card.dart';
+import '../widgets/game_chat.dart';
+import '../services/bot_chat_service.dart';
 
 import '../theme/app_palette.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
@@ -261,6 +264,22 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   final List<Map<String, dynamic>> _friendOpponents = const [];
   bool _matchReported = false;
 
+  // ★ 新增：重要事件改成彈出卡片，按「確認」後遊戲才繼續（原本只寫在上方一行，很快就被蓋掉）
+  final List<GameEventCard> _pendingCards = [];
+  final List<String> _turnLines = []; // 這一回合的所有事件文字，卡片裡一起列出
+  bool _showingEventCard = false;
+
+  // ★ 新增：聊天（嗆聲、寵物貼圖）＋電腦玩家台詞
+  final GameChatController _chat = GameChatController();
+  final BotChatService _botChat = BotChatService();
+  final Random _chatRng = Random();
+  DateTime _lastBotLine = DateTime.fromMillisecondsSinceEpoch(0);
+  int _chatSeq = 0;
+
+  // ★ 新增：每月一局。本月這局結束後由伺服器算名次（第 1～4 名可到任務中心領 10/8/5/1 扭蛋幣）
+  Map<String, dynamic>? _seasonResult;
+  bool _seasonReported = false;
+
   List<int> _diceValues = [1, 1];
   bool _isRolling = false;
   StreamSubscription? _accelerometerSub;
@@ -313,6 +332,19 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
             _currentPath[idx].ownerId = owner == null ? null : int.tryParse(owner.toString());
           }
         }
+      }
+      // ★ 新增：本月這局已經結束 → 直接顯示結算畫面，下個月 1 號才會重置
+      final season = data['season'];
+      if (season is Map && season['finished'] == true) {
+        final result = season['result'] is Map ? Map<String, dynamic>.from(season['result'] as Map) : null;
+        setState(() {
+          _isLoadingGameState = false;
+          _seasonResult = result;
+          _seasonReported = true;
+          _gameOver = true;
+          _gameLog = '本月的大富翁已經結束囉！';
+        });
+        return;
       }
       setState(() => _isLoadingGameState = false);
       _persistAllBlocks();
@@ -641,7 +673,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   }
   void _initShakeSensor() {
     _accelerometerSub = accelerometerEvents.listen((event) {
-      if (!_gameStarted || _gameOver || _isRolling || _currentPlayerIdx != 0) return;
+      if (!_gameStarted || _gameOver || _isRolling || _showingEventCard || _currentPlayerIdx != 0) return;
       final acc = sqrt(event.x * event.x + event.y * event.y + event.z * event.z);
       if (acc > 18 && DateTime.now().difference(_lastShakeTime).inMilliseconds > 1500) {
         _lastShakeTime = DateTime.now();
@@ -653,6 +685,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   @override
   void dispose() {
     _accelerometerSub?.cancel();
+    _chat.dispose();
     super.dispose();
   }
   Future<void> _usePetSkill() async {
@@ -1098,9 +1131,10 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   Future<void> _rollDice() async {
     // ★ 修正：電腦回合是用 Future.delayed 排程的，離開大富翁頁後才觸發會 setState 報錯
     if (!mounted) return;
-    if (_isRolling || _gameOver || !_gameStarted) return;
+    if (_isRolling || _gameOver || !_gameStarted || _showingEventCard) return;
 
     final p = _players[_currentPlayerIdx];
+    _turnLines.clear();
 
     // =====================================================
     // 等待貓：支付上一回合延後的租金
@@ -1119,6 +1153,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       _addLog(
         '⏳ 延後租金到期！支付 \$${_fmt(_deferredRent)} 給 ${owner.name}',
       );
+      _queueCard('⏳', '延後的租金到期了', '支付 \$${_fmt(_deferredRent)} 給 ${owner.name}', negative: true);
 
       _deferredRent = 0;
       _deferredRentOwnerId = null;
@@ -1192,6 +1227,9 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       _addLog(
         '${p.name} 在監獄中，還剩 ${p.jailTurns} 回合',
       );
+      if (p.id == 0) {
+        _queueCard('🚔', '還在監獄裡', '這回合不能移動，還剩 ${p.jailTurns} 回合', negative: true);
+      }
 
       _endTurn();
       return;
@@ -1361,6 +1399,9 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         );
         break;
     }
+    if (const {'clingy_dog', 'bear', 'bee'}.contains(_currentPetKey)) {
+      _queueCard('🏁', '經過起點', _gameLog);
+    }
 
     _persistPlayerState(p);
   }
@@ -1386,7 +1427,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         _handleChanceEvent(p);
         break;
 
-      // ★ 新增：繳稅格原本踩到什麼事都沒發生，現在會依格子金額繳稅
+    // ★ 新增：繳稅格原本踩到什麼事都沒發生，現在會依格子金額繳稅
       case BlockType.tax:
         _handleTaxEvent(p, block);
         break;
@@ -1410,6 +1451,10 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
         p.pathStep = 9;
         p.jailTurns = jailTurns;
+        if (p.id == 0) {
+          _randomBotSay('mock', chance: 0.7);
+          _queueCard('🚔', '進監獄！', '停在 ${block.name}，被關 $jailTurns 回合', negative: true);
+        }
 
         _persistPlayerState(p);
 
@@ -1464,6 +1509,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         _addLog(
           '${p.name} 佔領了 ${block.name}',
         );
+        _botSay(p.id, 'buy', chance: 0.45);
       } else {
         // ★ 新增：電腦錢不夠買地時也說一聲，不然看起來像什麼都沒發生
         _addLog('${p.name} 資金不足，沒有買下 ${block.name}', persist: false);
@@ -1565,6 +1611,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       _addLog(
         '⏳ 等等再說！\$${_fmt(rent)} 租金延後到下個回合支付',
       );
+      _queueCard('⏳', '租金先欠著', '停在 ${owner.name} 的 ${block.name}，\$${_fmt(rent)} 租金延後到下回合支付');
 
       _endTurn();
       return;
@@ -1613,6 +1660,16 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     _addLog(
       '${p.name} 支付租金 \$${_fmt(rent)} 給 ${owner.name}',
     );
+    if (p.id == 0) {
+      _botSay(owner.id, 'receive_rent', chance: 0.9);
+    } else if (owner.id == 0) {
+      _botSay(p.id, 'pay_rent', chance: 0.8);
+    }
+    if (p.id == 0) {
+      _queueCard('💸', '付租金', '停在 ${owner.name} 的 ${block.name}（Lv.${block.level}）\n支付 \$${_fmt(rent)}', negative: true);
+    } else if (owner.id == 0) {
+      _queueCard('💰', '收到租金！', '${p.name} 停在你的 ${block.name}\n付給你 \$${_fmt(rent)}');
+    }
 
     _checkLovelyCatGuard();
 
@@ -1777,6 +1834,21 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         '${p.name} ${delta > 0 ? '獲得' : '損失'} \$${delta.abs()} 機遇事件！',
       );
     }
+    if (p.id != 0) {
+      if (delta > 0) _botSay(p.id, 'chance_good', chance: 0.5);
+      if (delta < 0) _botSay(p.id, 'chance_bad', chance: 0.5);
+    } else if (delta < 0) {
+      _randomBotSay('mock', chance: 0.6);
+    }
+    if (p.id == 0) {
+      if (delta > 0) {
+        _queueCard('🎁', '機會：好運降臨！', '獲得 \$${_fmt(delta)}');
+      } else if (delta < 0) {
+        _queueCard('😱', '機會：運氣不太好…', '損失 \$${_fmt(delta.abs())}', negative: true);
+      } else {
+        _queueCard('🛡️', '機會：成功躲過！', '這次的損失完全沒有影響到你');
+      }
+    }
 
     _endTurn();
   }
@@ -1797,6 +1869,10 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     });
     _persistPlayerState(p);
     _addLog('🧾 ${p.name} 停在${block.name}，繳稅 \$${_fmt(tax)}');
+    if (p.id == 0) {
+      _randomBotSay('mock', chance: 0.6);
+      _queueCard('🧾', '繳稅', '停在${block.name}，繳稅 \$${_fmt(tax)}', negative: true);
+    }
 
     if (p.id == 0) _checkLovelyCatGuard();
 
@@ -1831,11 +1907,15 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       _addLog(
         '💗 暖心守護！資金低於 \$5000，自動補助 \$2000',
       );
+      _queueCard('💗', '暖心守護', '資金低於 \$5000，自動補助 \$2000');
     }
   }
 
-  void _endTurn() {
+  Future<void> _endTurn() async {
     if (_gameOver) return;
+    // ★ 新增：先把這回合的重要事件一張一張秀出來，按確認後才輪到下一位
+    await _flushEventCards();
+    if (!mounted || _gameOver || !_gameStarted) return;
     _persistAllPlayers();
 
     // 標記並檢查破產
@@ -1846,10 +1926,17 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
         if (p.id == 0) {
           setState(() { _gameOver = true; _gameLog = "你的寵物破產了！本月冒險結束"; });
           _reportFriendMatch();
+          _finishSeason();
           return;
         }
         _addLog("${p.name} 已破產，退出遊戲！");
+        _queueCard('💸', '${p.name} 破產了！', '${p.name} 的資金用光，退出這局遊戲');
+        _botSay(p.id, 'bankrupt', force: true);
       }
+    }
+    if (_pendingCards.isNotEmpty) {
+      await _flushEventCards();
+      if (!mounted || _gameOver || !_gameStarted) return;
     }
 
     // 若存活玩家只剩自己，也算結束
@@ -1857,6 +1944,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     if (alive.length == 1) {
       setState(() { _gameOver = true; _gameLog = "${alive.first.name} 獲得最終勝利！本月冒險結束"; });
       _reportFriendMatch();
+      _finishSeason();
       return;
     }
     // 蜜蜂主動：再行動一次
@@ -1892,14 +1980,137 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     }
   }
 
+  // ★ 新增：聊天
+  GameChatMessage _chatMessage(Player p, {String? text, String? stickerKey}) {
+    _chatSeq++;
+    final petKey = p.id == 0 ? _currentPetKey : null;
+    final path = p.animationPath;
+    final isImage = path != null && (path.endsWith('.png') || path.endsWith('.webp'));
+    return GameChatMessage(
+      id: 'local-$_chatSeq',
+      name: p.name,
+      avatarPath: isImage ? path : null,
+      emoji: p.emoji,
+      text: text,
+      stickerKey: stickerKey,
+      stickerAsset: stickerKey == null ? null : petStickerAsset(petKey, stickerKey),
+      isMe: p.id == 0,
+      color: p.color,
+    );
+  }
+
+  /// 電腦講話。force=false 時有機率、且 4 秒內不會連續講，避免洗版。
+  /// 有事件卡片時先等卡片按掉再講，才看得到泡泡。
+  void _botSay(int botId, String situation, {double chance = 0.7, bool force = false, int delayMs = 700}) {
+    if (!_gameStarted || botId <= 0 || botId >= _players.length) return;
+    final bot = _players[botId];
+    if (bot.isBankrupt && situation != 'bankrupt') return;
+    final now = DateTime.now();
+    if (!force) {
+      if (now.difference(_lastBotLine).inMilliseconds < 4000) return;
+      if (_chatRng.nextDouble() > chance) return;
+    }
+    final line = _botChat.line(botId, situation);
+    if (line == null) return;
+    _lastBotLine = now;
+    Future<void> say(int waited) async {
+      if (!mounted || !_gameStarted) return;
+      if ((_showingEventCard || _pendingCards.isNotEmpty) && waited < 30000) {
+        await Future.delayed(const Duration(milliseconds: 400));
+        return say(waited + 400);
+      }
+      _chat.add(_chatMessage(bot, text: line));
+    }
+    Future.delayed(Duration(milliseconds: delayMs), () => say(0));
+  }
+
+  void _randomBotSay(String situation, {double chance = 0.7, bool force = false, int delayMs = 700}) {
+    final alive = _players.where((p) => p.id != 0 && !p.isBankrupt).toList();
+    if (alive.isEmpty) return;
+    _botSay(alive[_chatRng.nextInt(alive.length)].id, situation, chance: chance, force: force, delayMs: delayMs);
+  }
+
+  void _sendChat({String? text, String? stickerKey}) {
+    if (!_gameStarted || _players.isEmpty) return;
+    _chat.add(_chatMessage(_players[0], text: text, stickerKey: stickerKey));
+    // 電腦大多會回嘴
+    _randomBotSay('taunted', force: _chatRng.nextDouble() < 0.8, chance: 0, delayMs: 1200);
+  }
+
+  void _openChat() {
+    showGameChatPanel(context, controller: _chat, myPetKey: _currentPetKey, onSend: _sendChat);
+  }
+
+  // ★ 新增：事件卡片
+  void _queueCard(String emoji, String title, String message, {bool negative = false}) {
+    _pendingCards.add(GameEventCard(emoji: emoji, title: title, message: message, negative: negative));
+  }
+
+  Future<void> _flushEventCards() async {
+    if (_pendingCards.isEmpty || !mounted) return;
+    final cards = List<GameEventCard>.from(_pendingCards);
+    _pendingCards.clear();
+    // 這回合其他相關的事件（技能觸發等）列在第一張卡片下面
+    const skipPrefixes = ['🎲', '📍', '👉'];
+    final shown = cards.map((c) => c.message).toSet();
+    // 只列技能觸發這類「附加說明」；以玩家名字開頭的一般事件已經寫在卡片上了
+    final names = _players.map((p) => p.name).toList();
+    final extra = _turnLines
+        .where((l) =>
+    !skipPrefixes.any(l.startsWith) &&
+        !names.any(l.startsWith) &&
+        !l.contains('輪到') &&
+        !shown.any(l.contains))
+        .toSet()
+        .toList();
+    _showingEventCard = true;
+    try {
+      for (var i = 0; i < cards.length; i++) {
+        if (!mounted || !_gameStarted) return;
+        await showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => GameEventCardDialog(card: cards[i], extraLines: i == 0 ? extra : const []),
+        );
+      }
+    } finally {
+      _showingEventCard = false;
+    }
+  }
+
+  // ★ 新增：本月這局結束 → 先把破產狀態存回伺服器，再請伺服器算名次
+  Future<void> _finishSeason() async {
+    if (_seasonReported) return;
+    _seasonReported = true;
+    try {
+      await _persistAllPlayers();
+      final uid = await GameApiService.instance.resolveCurrentUserId();
+      final res = await GameApiService.instance.finishMonopolySeason(userId: uid, theme: _themeKey);
+      final result = res['result'];
+      if (!mounted || result is! Map) return;
+      setState(() => _seasonResult = Map<String, dynamic>.from(result));
+    } catch (e) {
+      debugPrint('大富翁月結算失敗（月底會自動補算）：$e');
+    }
+  }
+
+  String? _seasonResultText() {
+    final r = _seasonResult;
+    if (r == null) return null;
+    final rank = int.tryParse(r['rank']?.toString() ?? '') ?? 0;
+    final coins = int.tryParse(r['reward_gacha_coins']?.toString() ?? '') ?? 0;
+    if (rank <= 0) return null;
+    return '本月名次：第 $rank 名\n到「任務中心」可領取 $coins 個扭蛋幣';
+  }
+
   // ★ 新增：一局結束，把跟好友分身的戰績送到後端，好友下次開 App 會看到
   Future<void> _reportFriendMatch() async {
     if (_matchReported || _friendOpponents.isEmpty) return;
     _matchReported = true;
     final ranked = [..._players]..sort((a, b) {
-        if (a.isBankrupt != b.isBankrupt) return a.isBankrupt ? 1 : -1;
-        return b.money.compareTo(a.money);
-      });
+      if (a.isBankrupt != b.isBankrupt) return a.isBankrupt ? 1 : -1;
+      return b.money.compareTo(a.money);
+    });
     int rankOf(Player p) => ranked.indexOf(p) + 1;
     final me = _players[0];
     try {
@@ -1927,6 +2138,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
   // persist=false：只顯示在畫面上，不寫到後端（例如「輪到誰」「擲出幾點」這種很頻繁的訊息）
   void _addLog(String msg, {bool persist = true}) {
     if (!mounted) return;
+    _turnLines.add(msg);
     setState(() {
       _gameLog = msg;
       _logHistory.add(msg);
@@ -1954,6 +2166,8 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       _initPlayers();
       _logHistory.clear(); // ★ 新開局清空事件紀錄
       _matchReported = false;
+      _seasonReported = false;
+      _seasonResult = null;
 
       _gameStarted = true;
       _gameOver = false;
@@ -1988,6 +2202,14 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
     });
 
     _loadGameStateFromApi(theme);
+
+    // ★ 新增：聊天室清空；請 AI 生成這局的電腦台詞（失敗就用內建台詞），電腦先打招呼
+    _chat.clear();
+    _botChat.prepare(
+      botNames: {for (final p in _players.skip(1)) p.id: p.name},
+      opponentName: _players[0].name,
+    );
+    Future.delayed(const Duration(milliseconds: 1500), () => _randomBotSay('game_start', force: true));
   }
 
   // =====================================================================
@@ -2061,6 +2283,20 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
             ),
           ),
         ),
+        // ── ★ 新增：聊天泡泡 + 💬 按鈕 ──
+        if (!_gameOver)
+          Positioned(
+            left: 14,
+            right: 84,
+            bottom: 112 + MediaQuery.of(context).padding.bottom,
+            child: Align(alignment: Alignment.bottomLeft, child: GameChatFeed(controller: _chat)),
+          ),
+        if (!_gameOver)
+          Positioned(
+            right: 16,
+            bottom: 112 + MediaQuery.of(context).padding.bottom,
+            child: GameChatButton(controller: _chat, onPressed: _openChat),
+          ),
         // ── 遊戲結束 Overlay ──
         if (_gameOver) _buildGameOverOverlay(),
       ],
@@ -2069,7 +2305,7 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
   Widget _buildGameOverOverlay() {
     final isMagic = _currentTheme == MapTheme.magicIsland;
-    final isWin   = _gameLog.contains('勝利');
+    final isWin   = _gameLog.contains('勝利') || _seasonResult?['rank']?.toString() == '1';
     return Container(
       color: Colors.black.withOpacity(0.65),
       child: Center(
@@ -2096,6 +2332,23 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: Colors.grey.shade600, height: 1.5),
               ),
+              // ★ 新增：本月名次與扭蛋幣獎勵
+              if (_seasonResultText() != null) ...[
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFF8E1),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: const Color(0xFFFFD54F)),
+                  ),
+                  child: Text(
+                    _seasonResultText()!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: Color(0xFF6D4C41), height: 1.5),
+                  ),
+                ),
+              ],
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
@@ -2254,23 +2507,23 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
       child: GestureDetector(
         onTap: _logHistory.isEmpty ? null : _showLogHistory,
         child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: border.withOpacity(0.5), width: 1.5),
-        ),
-        child: Row(
-          children: [
-            Text(isMagic ? "✨" : "🌸", style: const TextStyle(fontSize: 14)),
-            const SizedBox(width: 8),
-            // ★ 修改：顯示最近兩則（原本只有一則，電腦行動時會被蓋掉），點一下看完整紀錄
-            Expanded(child: Text(_recentLogText(), style: TextStyle(color: Colors.grey.shade700, fontSize: 11.5, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis, maxLines: 2)),
-            if (_logHistory.isNotEmpty)
-              Icon(Icons.history_rounded, size: 18, color: Colors.grey.shade500),
-          ],
-        ),
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: border.withOpacity(0.5), width: 1.5),
+          ),
+          child: Row(
+            children: [
+              Text(isMagic ? "✨" : "🌸", style: const TextStyle(fontSize: 14)),
+              const SizedBox(width: 8),
+              // ★ 修改：顯示最近兩則（原本只有一則，電腦行動時會被蓋掉），點一下看完整紀錄
+              Expanded(child: Text(_recentLogText(), style: TextStyle(color: Colors.grey.shade700, fontSize: 11.5, fontWeight: FontWeight.w500), overflow: TextOverflow.ellipsis, maxLines: 2)),
+              if (_logHistory.isNotEmpty)
+                Icon(Icons.history_rounded, size: 18, color: Colors.grey.shade500),
+            ],
+          ),
         ),
       ),
     );
@@ -2630,97 +2883,97 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
               child: SingleChildScrollView(
                 padding: const EdgeInsets.symmetric(vertical: 56),
                 child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  "🎲",
-                  style: TextStyle(fontSize: 56),
-                ),
-
-                const SizedBox(height: 10),
-
-                const Text(
-                  "選擇冒險地圖",
-                  style: TextStyle(
-                    color: Color(0xFF5D4037),
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 1.5,
-                  ),
-                ),
-
-                const SizedBox(height: 6),
-
-                Text(
-                  "搖一搖手機可以擲骰子！",
-                  style: TextStyle(
-                    color: Colors.grey.shade600,
-                    fontSize: 13,
-                  ),
-                ),
-
-                const SizedBox(height: 14),
-
-                // ★ 新增：本月地圖提示
-                if (_monthlyMapLoaded)
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.8),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '本月地圖：${_mapName(_monthlyTheme)} ・ ${_nextChangeLabel()}',
-                      style: const TextStyle(color: Color(0xFF5D4037), fontSize: 13, fontWeight: FontWeight.w600),
-                    ),
-                  ),
-
-                const SizedBox(height: 26),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    _themeCard(
-                      MapTheme.taiwan,
-                      "台灣環島",
-                      "🗺️",
-                      const Color(0xFF81C784),
-                      const Color(0xFFF1F8E9),
-                      const Color(0xFFE8F5E9),
+                    const Text(
+                      "🎲",
+                      style: TextStyle(fontSize: 56),
                     ),
 
-                    const SizedBox(width: 20),
+                    const SizedBox(height: 10),
 
-                    _themeCard(
-                      MapTheme.magicIsland,
-                      "魔法天空島",
-                      "✨",
-                      const Color(0xFFBA68C8),
-                      const Color(0xFFF8E8FF),
-                      const Color(0xFFF3E5F5),
+                    const Text(
+                      "選擇冒險地圖",
+                      style: TextStyle(
+                        color: Color(0xFF5D4037),
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 1.5,
+                      ),
+                    ),
+
+                    const SizedBox(height: 6),
+
+                    Text(
+                      "搖一搖手機可以擲骰子！",
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 13,
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // ★ 新增：本月地圖提示
+                    if (_monthlyMapLoaded)
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.8),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          '本月地圖：${_mapName(_monthlyTheme)} ・ ${_nextChangeLabel()}',
+                          style: const TextStyle(color: Color(0xFF5D4037), fontSize: 13, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+
+                    const SizedBox(height: 26),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        _themeCard(
+                          MapTheme.taiwan,
+                          "台灣環島",
+                          "🗺️",
+                          const Color(0xFF81C784),
+                          const Color(0xFFF1F8E9),
+                          const Color(0xFFE8F5E9),
+                        ),
+
+                        const SizedBox(width: 20),
+
+                        _themeCard(
+                          MapTheme.magicIsland,
+                          "魔法天空島",
+                          "✨",
+                          const Color(0xFFBA68C8),
+                          const Color(0xFFF8E8FF),
+                          const Color(0xFFF3E5F5),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    const SizedBox(height: 28),
+
+                    // ★ 新增：真人好友對戰（輪流制）
+                    FilledButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (_) => const MultiplayerLobbyPage()),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Colors.pink,
+                        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                      ),
+                      icon: const Icon(Icons.groups_rounded),
+                      label: const Text('好友對戰（真人輪流擲骰）'),
                     ),
                   ],
                 ),
-
-                const SizedBox(height: 24),
-
-                const SizedBox(height: 28),
-
-                // ★ 新增：真人好友對戰（輪流制）
-                FilledButton.icon(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const MultiplayerLobbyPage()),
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Colors.pink,
-                    padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-                  ),
-                  icon: const Icon(Icons.groups_rounded),
-                  label: const Text('好友對戰（真人輪流擲骰）'),
-                ),
-              ],
-            ),
               ),
             ),
           ],
@@ -2841,6 +3094,10 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
               _persistPlayerState(p);
               _persistBlockState(b);
+              // ★ 新增：每日任務「大富翁買地或升級 1 次」
+              GameApiService.instance.recordMonopolyBuild(
+                hint: '$_themeKey:${_currentPath.indexOf(b)}:${b.level}',
+              );
 
               _addLog(
                 '${p.name} 佔領了 ${b.name}！',
@@ -2908,6 +3165,10 @@ class _PlaygroundPageState extends State<PlaygroundPage> {
 
               _persistPlayerState(p);
               _persistBlockState(b);
+              // ★ 新增：每日任務「大富翁買地或升級 1 次」
+              GameApiService.instance.recordMonopolyBuild(
+                hint: '$_themeKey:${_currentPath.indexOf(b)}:${b.level}',
+              );
 
               Navigator.pop(ctx);
 

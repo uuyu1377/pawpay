@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -18,7 +19,12 @@
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
 
 
+    <!-- ★ 修正：關閉 Android 自動備份。原本重灌 App 時，Google 會把舊的登入資料（user_id、jwt_token、
+         is_onboarded）自動還原回來，新帳號一打開就變成舊帳號，看到舊帳號的寵物。 -->
     <application
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        tools:replace="android:allowBackup,android:fullBackupContent"
         android:label="user_interface"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"

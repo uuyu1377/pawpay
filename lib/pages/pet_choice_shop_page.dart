@@ -46,7 +46,7 @@ class _PetChoiceShopPageState extends State<PetChoiceShopPage> {
   bool _busy = false;
   int _tickets = 0;
   int _coins = 0;            // ★ 新增：扭蛋幣餘額
-  int _ticketCoinCost = 30;  // ★ 新增：一張自選券要幾個扭蛋幣（以後端回傳為準，約 2～3 個月的任務獎勵）
+  int _ticketCoinCost = 1000; // ★ 修改：一張自選券 1000 扭蛋幣（以後端回傳的 ticket_coin_cost 為準）
   final Set<String> _ownedKeys = <String>{};
 
   @override
@@ -76,7 +76,8 @@ class _PetChoiceShopPageState extends State<PetChoiceShopPage> {
         }
       }
       try {
-        final existingPets = await api.fetchPets();
+        // ★ 修正：要帶目前登入的帳號；沒帶會讀到預設帳號（user 1）的寵物
+        final existingPets = await api.fetchPets(userId: await api.resolveCurrentUserId());
         for (final pet in existingPets) {
           final key = (pet['icon_key'] ?? pet['species_name'])?.toString() ?? '';
           if (key.isNotEmpty) owned.add(_normKey(key));
@@ -226,117 +227,117 @@ class _PetChoiceShopPageState extends State<PetChoiceShopPage> {
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : RefreshIndicator(
-              onRefresh: _load,
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+        onRefresh: _load,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 28),
+          children: [
+            Container(
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFFFF1DA), Color(0xFFFFD8E5)],
+                ),
+                borderRadius: BorderRadius.circular(22),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(
-                        colors: [Color(0xFFFFF1DA), Color(0xFFFFD8E5)],
-                      ),
-                      borderRadius: BorderRadius.circular(22),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          '$_ticketCoinCost 扭蛋幣＝1 張寵物自選券',
-                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
-                        ),
-                        const SizedBox(height: 8),
-                        Text('可直接選擇一隻尚未擁有的寵物。扭蛋幣靠記帳任務取得，不需要花錢。\n目前有 $_coins 扭蛋幣'),
-                        const SizedBox(height: 16),
-                        Row(
-                          children: [
-                            Chip(
-                              avatar: const Icon(Icons.confirmation_number_rounded, size: 18),
-                              label: Text('目前有 $_tickets 張'),
-                            ),
-                            const Spacer(),
-                            FilledButton.icon(
-                              onPressed: _busy ? null : _exchangeTicket,
-                              icon: const Icon(Icons.swap_horiz_rounded),
-                              label: const Text('兌換一張'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 22),
-                  const Text(
-                    '選擇寵物',
-                    style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 4),
                   Text(
-                    _tickets > 0 ? '點選尚未擁有的寵物進行兌換' : '請先用扭蛋幣兌換一張寵物自選券',
-                    style: const TextStyle(color: Colors.black54),
+                    '$_ticketCoinCost 扭蛋幣＝1 張寵物自選券',
+                    style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
                   ),
-                  const SizedBox(height: 14),
-                  GridView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: _pets.length,
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      childAspectRatio: 1.35,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 12,
+                  const SizedBox(height: 8),
+                  Text('可直接選擇一隻尚未擁有的寵物。扭蛋幣靠記帳任務取得，不需要花錢。\n目前有 $_coins 扭蛋幣'),
+                  const SizedBox(height: 16),
+                  Row(
+                    children: [
+                      Chip(
+                        avatar: const Icon(Icons.confirmation_number_rounded, size: 18),
+                        label: Text('目前有 $_tickets 張'),
+                      ),
+                      const Spacer(),
+                      FilledButton.icon(
+                        onPressed: _busy ? null : _exchangeTicket,
+                        icon: const Icon(Icons.swap_horiz_rounded),
+                        label: const Text('兌換一張'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+            const Text(
+              '選擇寵物',
+              style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _tickets > 0 ? '點選尚未擁有的寵物進行兌換' : '請先用扭蛋幣兌換一張寵物自選券',
+              style: const TextStyle(color: Colors.black54),
+            ),
+            const SizedBox(height: 14),
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _pets.length,
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                childAspectRatio: 1.35,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+              ),
+              itemBuilder: (context, index) {
+                final pet = _pets[index];
+                final owned = _ownedKeys.contains(pet['key']);
+                final enabled = !owned && _tickets > 0 && !_busy;
+                return InkWell(
+                  borderRadius: BorderRadius.circular(18),
+                  onTap: enabled ? () => _redeem(pet) : null,
+                  child: Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: owned ? Colors.grey.shade200 : Colors.white,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(
+                        color: enabled ? const Color(0xFFFF8A80) : Colors.grey.shade300,
+                        width: enabled ? 2 : 1,
+                      ),
                     ),
-                    itemBuilder: (context, index) {
-                      final pet = _pets[index];
-                      final owned = _ownedKeys.contains(pet['key']);
-                      final enabled = !owned && _tickets > 0 && !_busy;
-                      return InkWell(
-                        borderRadius: BorderRadius.circular(18),
-                        onTap: enabled ? () => _redeem(pet) : null,
-                        child: Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: owned ? Colors.grey.shade200 : Colors.white,
-                            borderRadius: BorderRadius.circular(18),
-                            border: Border.all(
-                              color: enabled ? const Color(0xFFFF8A80) : Colors.grey.shade300,
-                              width: enabled ? 2 : 1,
-                            ),
-                          ),
-                          child: Row(
+                    child: Row(
+                      children: [
+                        // ★ 修改：用設定好的寵物照片取代 emoji（找不到圖時才退回 emoji）
+                        _petImage(pet, size: 56, dimmed: owned),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // ★ 修改：用設定好的寵物照片取代 emoji（找不到圖時才退回 emoji）
-                              _petImage(pet, size: 56, dimmed: owned),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      pet['name']!,
-                                      style: const TextStyle(fontWeight: FontWeight.w700),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      owned ? '已擁有' : '使用 1 張券',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: owned ? Colors.grey : Colors.deepOrange,
-                                      ),
-                                    ),
-                                  ],
+                              Text(
+                                pet['name']!,
+                                style: const TextStyle(fontWeight: FontWeight.w700),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                owned ? '已擁有' : '使用 1 張券',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: owned ? Colors.grey : Colors.deepOrange,
                                 ),
                               ),
                             ],
                           ),
                         ),
-                      );
-                    },
+                      ],
+                    ),
                   ),
-                ],
-              ),
+                );
+              },
             ),
+          ],
+        ),
+      ),
     );
   }
 }

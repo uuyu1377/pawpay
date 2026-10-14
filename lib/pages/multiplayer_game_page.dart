@@ -9,6 +9,8 @@ import '../data/pet_skill_data.dart';
 import '../services/current_pet_manager.dart';
 import '../services/game_api_service.dart';
 import '../theme/app_palette.dart';
+import '../widgets/game_chat.dart';
+import '../widgets/game_event_card.dart';
 import '../widgets/island_board_3d.dart';
 import 'playground_page.dart' show Dice3D; // ★ 跟單人大富翁共用同一個 3D 骰子
 
@@ -42,6 +44,16 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
   Timer? _walk;
   final Map<int, int> _shownSteps = {}; // 畫面上棋子目前站的格子（走路動畫用）
   int _lastPendingKey = -1;
+  // ★ 新增：重要事件卡片（後端 log 的 kind），棋子走完才一張一張跳出來
+  int _seenSeq = -1;
+  final List<GameEventCard> _cardQueue = [];
+  bool _flushingCards = false;
+  // ★ 新增：聊天室（每 2.5 秒拉一次新訊息，跟遊戲狀態的輪詢分開，輪到自己時也會更新）
+  final GameChatController _chat = GameChatController();
+  Timer? _chatPoll;
+  int _chatAfterId = 0;
+  bool _chatLoaded = false;
+  bool _chatPolling = false;
   StreamSubscription? _shakeSub; // 搖一搖擲骰（跟單人版一樣）
   DateTime _lastShake = DateTime.fromMillisecondsSinceEpoch(0);
 
@@ -51,7 +63,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
     _init();
     _shakeSub = accelerometerEvents.listen((e) {
       final v = _v;
-      if (v == null || v['my_turn'] != true || v['pending'] != null || _busy || _diceRolling) return;
+      if (v == null || v['my_turn'] != true || v['pending'] != null || _busy || _diceRolling || _flushingCards) return;
       final acc = sqrt(e.x * e.x + e.y * e.y + e.z * e.z);
       if (acc > 18 && DateTime.now().difference(_lastShake).inMilliseconds > 1500) {
         _lastShake = DateTime.now();
@@ -65,6 +77,8 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
     _poll?.cancel();
     _walk?.cancel();
     _shakeSub?.cancel();
+    _chatPoll?.cancel();
+    _chat.dispose();
     super.dispose();
   }
 
@@ -78,6 +92,73 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
       if (v['my_turn'] == true && v['status'] == 'playing') return;
       _refresh(silent: true);
     });
+    if (!mounted) return;
+    _pollChat();
+    _chatPoll = Timer.periodic(const Duration(milliseconds: 2500), (_) => _pollChat());
+  }
+
+  // ── ★ 新增：聊天 ──────────────────────────────────────────────────────
+  Future<void> _pollChat() async {
+    final v = _v;
+    if (_chatPolling || v == null || v['status'] == 'waiting') return;
+    _chatPolling = true;
+    try {
+      final list = await _api.mpChatList(gameId: widget.gameId, userId: _uid, afterId: _chatAfterId);
+      if (!mounted) return;
+      final players = _players();
+      for (final m in list) {
+        final id = (m['id'] as num?)?.toInt() ?? 0;
+        if (id <= _chatAfterId) continue;
+        _chatAfterId = id;
+        final seat = (m['seat'] as num?)?.toInt() ?? 0;
+        final pl = players.firstWhere((p) => p['seat'] == seat, orElse: () => <String, dynamic>{'seat': seat});
+        final isSticker = m['kind'] == 'sticker';
+        final body = m['body']?.toString() ?? '';
+        _chat.add(
+          GameChatMessage(
+            id: 'mp-$id',
+            name: (m['name'] ?? pl['name'] ?? '').toString(),
+            avatarPath: _imageOf(pl),
+            emoji: (m['emoji'] ?? pl['emoji'])?.toString(),
+            text: isSticker ? null : body,
+            stickerKey: isSticker ? body : null,
+            stickerAsset: isSticker ? petStickerAsset(m['pet_key']?.toString(), body) : null,
+            isMe: m['is_me'] == true,
+            color: _seatColors[seat % _seatColors.length],
+          ),
+          silent: !_chatLoaded, // 剛進來時的舊訊息只放紀錄，不跳泡泡
+        );
+      }
+      _chatLoaded = true;
+    } catch (_) {
+      // 聊天失敗不影響遊戲，下一輪再試
+    } finally {
+      _chatPolling = false;
+    }
+  }
+
+  Future<void> _sendChat({String? text, String? stickerKey}) async {
+    try {
+      await _api.mpChatSend(
+        gameId: widget.gameId,
+        userId: _uid,
+        kind: stickerKey != null ? 'sticker' : 'text',
+        body: stickerKey ?? text ?? '',
+      );
+      await _pollChat();
+    } catch (e) {
+      _snack(GameApiService.errorMessage(e));
+    }
+  }
+
+  void _openChat() {
+    final me = _players().where((p) => p['is_me'] == true).toList();
+    showGameChatPanel(
+      context,
+      controller: _chat,
+      myPetKey: me.isEmpty ? null : me.first['pet_key']?.toString(),
+      onSend: ({String? text, String? stickerKey}) => _sendChat(text: text, stickerKey: stickerKey),
+    );
   }
 
   Future<void> _refresh({bool silent = false}) async {
@@ -107,6 +188,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
       final jumped = old == null || dist > 13 || ((p['jail'] as num? ?? 0) > 0 && step == 9 && old != 9);
       if (jumped) _shownSteps[seat] = step;
     }
+    _collectEventCards(v);
     setState(() {
       _v = v;
       _error = null;
@@ -126,12 +208,89 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
         setState(() {});
         if (!moving) {
           t.cancel();
-          _maybeAskDecision();
+          _afterWalk();
         }
       });
     } else {
-      _maybeAskDecision();
+      _afterWalk();
     }
+  }
+
+  // ── ★ 新增：事件卡片 ──────────────────────────────────────────────────
+  void _collectEventCards(Map<String, dynamic> v) {
+    final log = ((v['log'] as List?) ?? const []).whereType<Map>().toList();
+    var maxSeq = _seenSeq;
+    for (final e in log) {
+      final seq = (e['seq'] as num?)?.toInt() ?? 0;
+      if (seq > maxSeq) maxSeq = seq;
+    }
+    if (_seenSeq < 0) {
+      // 第一次載入：舊事件不補跳
+      _seenSeq = maxSeq;
+      return;
+    }
+    final mySeat = (v['my_seat'] as num?)?.toInt();
+    for (final e in log) {
+      final seq = (e['seq'] as num?)?.toInt() ?? 0;
+      if (seq <= _seenSeq) continue;
+      final card = _cardFor(Map<String, dynamic>.from(e), mySeat);
+      if (card != null) _cardQueue.add(card);
+    }
+    _seenSeq = maxSeq;
+  }
+
+  GameEventCard? _cardFor(Map<String, dynamic> e, int? mySeat) {
+    final kind = e['kind']?.toString();
+    if (kind == null) return null;
+    final text = e['text']?.toString() ?? '';
+    final seat = (e['seat'] as num?)?.toInt();
+    final target = (e['target'] as num?)?.toInt();
+    final mine = seat != null && seat == mySeat;
+    if (kind == 'bankrupt') return GameEventCard(emoji: '💸', title: mine ? '你破產了…' : '有人破產了！', message: text, negative: mine);
+    if (kind == 'win') return GameEventCard(emoji: '🏆', title: mine ? '你贏了！' : '遊戲結束', message: text, negative: !mine);
+    if (!mine) {
+      if (kind == 'rent' && target != null && target == mySeat) {
+        return GameEventCard(emoji: '💰', title: '收到租金！', message: text);
+      }
+      return null;
+    }
+    switch (kind) {
+      case 'rent':
+        return GameEventCard(emoji: '💸', title: '付租金', message: text, negative: true);
+      case 'rent_defer':
+        return GameEventCard(emoji: '⏳', title: '租金先欠著', message: text);
+      case 'tax':
+        return GameEventCard(emoji: '🧾', title: '繳稅', message: text, negative: true);
+      case 'jail':
+        return GameEventCard(emoji: '🚔', title: '進監獄！', message: text, negative: true);
+      case 'jail_stay':
+        return GameEventCard(emoji: '🚔', title: '還在監獄裡', message: text, negative: true);
+      case 'chance_good':
+        return GameEventCard(emoji: '🎁', title: '機會：好運降臨！', message: text);
+      case 'chance_bad':
+        return GameEventCard(emoji: '😱', title: '機會：運氣不太好…', message: text, negative: true);
+      case 'chance_safe':
+        return GameEventCard(emoji: '🛡️', title: '機會：成功躲過！', message: text);
+      case 'start_bonus':
+        return GameEventCard(emoji: '🏁', title: '經過起點', message: text);
+      case 'guard':
+        return GameEventCard(emoji: '💗', title: '暖心守護', message: text);
+    }
+    return null;
+  }
+
+  Future<void> _afterWalk() async {
+    if (_flushingCards) return;
+    _flushingCards = true;
+    try {
+      while (_cardQueue.isNotEmpty && mounted) {
+        final card = _cardQueue.removeAt(0);
+        await showGameEventCard(context, card);
+      }
+    } finally {
+      _flushingCards = false;
+    }
+    if (mounted) _maybeAskDecision();
   }
 
   List<Map<String, dynamic>> _players([Map<String, dynamic>? v]) =>
@@ -160,13 +319,13 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
       if (mounted) setState(() => _busy = false);
     }
     // 動作期間 _busy 擋住了買地視窗，結束後再檢查一次（走路動畫跑完時也會再檢查）
-    if (mounted && (_walk == null || !_walk!.isActive)) _maybeAskDecision();
+    if (mounted && (_walk == null || !_walk!.isActive)) _afterWalk();
   }
 
   // ── 買地 / 升級 ────────────────────────────────────────────────────────
   Future<void> _maybeAskDecision() async {
     final pend = _v?['pending'];
-    if (pend is! Map || _busy) return;
+    if (pend is! Map || _busy || _flushingCards) return;
     final key = Object.hash(pend['type'], pend['idx'], _v?['version']);
     if (key == _lastPendingKey) return;
     _lastPendingKey = key;
@@ -194,6 +353,10 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
     );
     if (ok == null || !mounted) return;
     await _act('decide', {'accept': ok});
+    // ★ 新增：每日任務「大富翁買地或升級 1 次」（好友對戰也算）
+    if (ok) {
+      _api.recordMonopolyBuild(hint: 'mp:${widget.gameId}:${pend['idx']}:${pend['type']}:${_v?['version']}');
+    }
   }
 
   // ── 主動技能 ──────────────────────────────────────────────────────────
@@ -340,6 +503,20 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
             ]),
           ),
         ),
+        // ── ★ 新增：聊天泡泡 + 💬 按鈕（對戰開始後才有）──
+        if (v != null && v['status'] == 'playing')
+          Positioned(
+            left: 14,
+            right: 84,
+            bottom: 112 + MediaQuery.of(context).padding.bottom,
+            child: Align(alignment: Alignment.bottomLeft, child: GameChatFeed(controller: _chat)),
+          ),
+        if (v != null && v['status'] == 'playing')
+          Positioned(
+            right: 16,
+            bottom: 112 + MediaQuery.of(context).padding.bottom,
+            child: GameChatButton(controller: _chat, onPressed: _openChat),
+          ),
         if (v != null && v['status'] == 'finished') _buildGameOverOverlay(v),
       ]),
     );
@@ -648,7 +825,7 @@ class _MultiplayerGamePageState extends State<MultiplayerGamePage> {
 
   // 擲骰：骰子先轉一下（跟單人版一樣約 0.65 秒），再顯示伺服器擲出的結果
   Future<void> _roll() async {
-    if (_busy) return;
+    if (_busy || _flushingCards) return;
     setState(() => _diceRolling = true);
     await Future.wait([
       _act('roll'),
