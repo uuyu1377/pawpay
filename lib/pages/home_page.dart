@@ -60,7 +60,7 @@ class HomePageState extends State<HomePage> {
   Future<void> reloadIncomeReviews() async {
     final generation = ++_reviewReadGeneration;
     final ids = widget.transactions.where((tx) => tx.type == TransactionType.income)
-      .map((tx) => tx.id).toList();
+        .map((tx) => tx.id).toList();
     if (ids.isEmpty) {
       if (mounted) setState(() { _incomeReviews = {}; _reviewError = null; });
       return;
@@ -91,10 +91,10 @@ class HomePageState extends State<HomePage> {
       if (!mounted) return true;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(action == 'cancel' ? '已取消本次入帳，下期仍照原設定'
-          : action == 'restore' ? '已復原本次收入' : '已確認，不會重複入帳'),
+            : action == 'restore' ? '已復原本次收入' : '已確認，不會重複入帳'),
         duration: const Duration(seconds: 8),
         action: action == 'cancel' ? SnackBarAction(label: '復原',
-          onPressed: () => _applyIncomeReview(updated, 'restore')) : null,
+            onPressed: () => _applyIncomeReview(updated, 'restore')) : null,
       ));
       return true;
     } catch (e) {
@@ -115,8 +115,8 @@ class HomePageState extends State<HomePage> {
     return Column(key: ValueKey('income-review-${tx.id}'), children: [
       original,
       Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-        child: RecurringIncomeReviewBar(review: review, busy: _reviewBusy.contains(review.key),
-          onAction: (action) => _applyIncomeReview(review, action))),
+          child: RecurringIncomeReviewBar(review: review, busy: _reviewBusy.contains(review.key),
+              onAction: (action) => _applyIncomeReview(review, action))),
     ]);
   }
 
@@ -507,27 +507,6 @@ class HomePageState extends State<HomePage> {
               // AI 時事公告
               AiNewsBanner(
                 transactions: widget.transactions,
-              ),
-
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.image_rounded),
-                    label: const Text('生成本週可愛支出分享圖'),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => WeeklySharePage(
-                            transactions: widget.transactions,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
               ),
 
               const SizedBox(height: 24),
